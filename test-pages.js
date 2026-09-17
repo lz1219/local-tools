@@ -176,10 +176,9 @@ function check(name, cond) {
     els['inputA'].value = 'a\nb\nc';
     els['inputB'].value = 'a\nx\nc';
     ctx.doDiff();
-    check('diff 渲染', els['diffResult'].innerHTML.includes('diff-row del') && els['diffResult'].innerHTML.includes('diff-row add'));
-    check('diff 统计', els['diffBadge'].textContent === '+1 / -1');
-    // 行内字符级高亮
+    check('并排视图渲染', els['diffResult'].innerHTML.includes('sd-row change'));
     check('行内高亮标记', els['diffResult'].innerHTML.includes('part-del') && els['diffResult'].innerHTML.includes('part-add'));
+    check('diff 统计', els['diffBadge'].textContent === '+1 / -1');
     const seg = ctx.inlineDiff('abcde', 'abXde');
     check('inlineDiff 段落', seg.a.length === 3 && seg.a[1].t === 'chg' && seg.a[1].text === 'c' && seg.b[1].text === 'X');
     check('inlineDiff 完全相同', ctx.inlineDiff('same', 'same').a.every(s => s.t === 'same'));
@@ -189,8 +188,20 @@ function check(name, cond) {
     check('忽略首尾空白', ctx.diffLines('abc  ', '  abc').every(r => r.t === 'same'));
     ctx.ignoreWs = false;
     // 多行改动配对后行内高亮，多余行整行标色
-    const html2 = ctx.renderDiff(ctx.diffLines('l1\nfoo1\nbar', 'l1\nfoo2\nbaz\nbax'));
+    const html2 = ctx.renderUnified(ctx.buildUnits(ctx.diffLines('l1\nfoo1\nbar', 'l1\nfoo2\nbaz\nbax')));
     check('配对渲染', html2.includes('part-del') && html2.split('diff-row del').length === 3);
+    // 长未变更段折叠
+    const longA = Array.from({ length: 16 }, (_, k) => 'line' + k).join('\n');
+    const longB = Array.from({ length: 16 }, (_, k) => k === 3 ? 'CHANGED' : 'line' + k).join('\n');
+    els['inputA'].value = longA;
+    els['inputB'].value = longB;
+    ctx.doDiff();
+    check('未变更段折叠', els['diffResult'].innerHTML.includes('展开 6 行未更改'));
+    ctx.toggleFold(4);
+    check('展开折叠段', !els['diffResult'].innerHTML.includes('展开 6 行未更改') &&
+        (els['diffResult'].innerHTML.match(/sd-row same/g) || []).length === 15);
+    ctx.switchView('unified');
+    check('统一视图渲染', els['diffResult'].innerHTML.includes('diff-row del') && els['diffResult'].innerHTML.includes('diff-row add'));
 }
 
 // ---- time.html ----

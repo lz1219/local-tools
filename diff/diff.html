@@ -8,18 +8,20 @@
     <style>
         .editors { display: flex; gap: 16px; }
         .editors .panel { flex: 1; min-width: 0; margin-bottom: 0; }
-        .editors .editor-wrap { height: 260px; }
+        .editors .editor-wrap { height: 240px; }
 
         .diff-wrap {
             border: 1px solid #dde1e6;
             border-radius: 8px;
             background: #fafbfc;
-            height: 380px;
+            height: 420px;
             overflow: auto;
             font-family: 'Consolas', 'Courier New', monospace;
             font-size: 13px;
             line-height: 20.8px;
         }
+
+        /* ---- 统一视图 ---- */
         .diff-row { display: flex; white-space: pre; }
         .diff-row .ln {
             width: 44px; flex-shrink: 0; text-align: right; padding-right: 10px;
@@ -35,6 +37,31 @@
         .diff-row.del .sign, .diff-row.del .code { color: #c62828; }
         .diff-row.add { background: #e8f5e9; }
         .diff-row.add .sign, .diff-row.add .code { color: #2e7d32; }
+
+        /* ---- 并排视图（IDEA 风格） ---- */
+        .sd-row { display: flex; white-space: pre; }
+        .sd-row .ln {
+            width: 40px; flex-shrink: 0; text-align: right; padding-right: 8px;
+            color: #aaa; user-select: none; background: #f0f2f5;
+            border-right: 1px solid #dde1e6;
+        }
+        .sd-row .cell { flex: 1; min-width: 0; overflow: hidden; padding-right: 8px; }
+        .sd-row .gutter {
+            width: 16px; flex-shrink: 0; background: #f7f8fa;
+            border-left: 1px solid #e4e7ea; border-right: 1px solid #e4e7ea;
+        }
+        .sd-row .cell.l:empty, .sd-row .cell.r:empty { background: #f4f5f7; }
+        .sd-row.same .cell { color: #333; }
+        .sd-row.change .cell.l { background: #ffeef0; color: #c62828; }
+        .sd-row.change .cell.r { background: #e8f5e9; color: #2e7d32; }
+        .sd-row.del .cell.l { background: #ffeef0; color: #c62828; }
+        .sd-row.del .gutter { background: rgba(229, 57, 53, 0.35); }
+        .sd-row.add .cell.r { background: #e8f5e9; color: #2e7d32; }
+        .sd-row.add .gutter { background: rgba(67, 160, 71, 0.4); }
+        .sd-row.change .gutter { background: linear-gradient(to right, rgba(229,57,53,0.35), rgba(67,160,71,0.4)); }
+        .sd-row.fold .cell { background: #f0f4f8; color: #999; cursor: pointer; text-align: center; user-select: none; }
+        .sd-row.fold .cell:hover { background: #e3f2fd; color: #1565c0; }
+
         .part-del { background: rgba(229, 57, 53, 0.25); border-radius: 2px; }
         .part-add { background: rgba(67, 160, 71, 0.28); border-radius: 2px; }
 
@@ -47,13 +74,29 @@
         }
         .options-row input[type="checkbox"] { accent-color: #4a9eff; }
 
+        .view-toggle {
+            display: inline-flex;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .view-toggle button {
+            border: none;
+            border-radius: 0;
+            padding: 4px 12px;
+            font-size: 12px;
+            background: #fff;
+            color: #666;
+        }
+        .view-toggle button.active { background: #4a9eff; color: #fff; }
+
         @media (max-width: 720px) { .editors { flex-direction: column; } }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>文本对比工具</h1>
-        <p class="subtitle">逐行对比 · 行内字符级高亮 · 实时刷新</p>
+        <p class="subtitle">并排 / 统一双视图 · 行内字符级高亮 · 实时刷新</p>
 
         <div class="editors">
             <div class="panel">
@@ -87,6 +130,10 @@
         </div>
 
         <div class="btn-row">
+            <div class="view-toggle">
+                <button id="btnSideView" class="active" onclick="switchView('side')">并排视图</button>
+                <button id="btnUnifiedView" onclick="switchView('unified')">统一视图</button>
+            </div>
             <button class="btn-primary" onclick="doDiff()">对比</button>
             <button class="btn-outline btn-sm" onclick="swapSides()">交换左右</button>
             <button class="btn-outline btn-sm" onclick="navChange(-1)">↑ 上一处</button>
@@ -114,6 +161,10 @@
     <script src="../assets/common.js"></script>
     <script>
         var ignoreWs = false, ignoreCase = false;
+        var currentView = 'side';
+        var lastUnits = [];
+        var expandedFolds = {};
+        var FOLD_THRESHOLD = 8, FOLD_EDGE = 3;
 
         function esc(s) {
             return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -125,7 +176,7 @@
             return s;
         }
 
-        // 行级 LCS 差异：公共前后缀先剔除，中段动态规划求解
+        // ---- 行级 LCS 差异 ----
         function diffLines(a, b) {
             var A = a.split('\n'), B = b.split('\n');
             var pre = 0;
@@ -138,7 +189,7 @@
             var n = midA.length, m = midB.length;
             var ops = [];
 
-            var MAX_CELLS = 4000000; // 超过上限退化为整段替换，避免内存爆炸
+            var MAX_CELLS = 4000000;
             if (n > 0 && m > 0 && n * m <= MAX_CELLS) {
                 var W = m + 1;
                 var dp = new Uint32Array((n + 1) * W);
@@ -173,7 +224,7 @@
             });
         }
 
-        // 字符级差异：返回两侧的段落拆分（same / chg），用于行内高亮
+        // ---- 字符级差异（行内高亮） ----
         function inlineDiff(a, b) {
             var A = Array.from(a), B = Array.from(b);
             var la = A.length, lb = B.length;
@@ -222,18 +273,16 @@
             return { a: build(A, aChg), b: build(B, bChg) };
         }
 
-        // 渲染：把连续的 del/add 块按行配对，配对行做行内高亮
-        function renderDiff(rows) {
-            var out = [];
-            var pending = [];
+        // ---- 差异单元：same / change(配对) / del / add ----
+        function segsHtml(segs, side) {
+            return segs.map(function (s) {
+                if (s.t === 'same') return esc(s.text);
+                return '<span class="part-' + side + '">' + esc(s.text) + '</span>';
+            }).join('');
+        }
 
-            function segsHtml(segs, side) {
-                return segs.map(function (s) {
-                    if (s.t === 'same') return esc(s.text);
-                    return '<span class="part-' + side + '">' + esc(s.text) + '</span>';
-                }).join('') || '&nbsp;';
-            }
-
+        function buildUnits(rows) {
+            var units = [], pending = [];
             function flush() {
                 if (!pending.length) return;
                 var ds = [], as = [];
@@ -241,34 +290,104 @@
                 var n = Math.min(ds.length, as.length);
                 for (var i = 0; i < n; i++) {
                     var seg = inlineDiff(ds[i].text, as[i].text);
-                    out.push({ t: 'del', an: ds[i].an, html: segsHtml(seg.a, 'del') });
-                    out.push({ t: 'add', bn: as[i].bn, html: segsHtml(seg.b, 'add') });
+                    units.push({ t: 'change', an: ds[i].an, bn: as[i].bn, aHtml: segsHtml(seg.a, 'del'), bHtml: segsHtml(seg.b, 'add') });
                 }
-                for (var j = n; j < ds.length; j++) out.push({ t: 'del', an: ds[j].an, html: esc(ds[j].text) || '&nbsp;' });
-                for (var j = n; j < as.length; j++) out.push({ t: 'add', bn: as[j].bn, html: esc(as[j].text) || '&nbsp;' });
+                for (var j = n; j < ds.length; j++) units.push({ t: 'del', an: ds[j].an, aHtml: esc(ds[j].text) });
+                for (var j = n; j < as.length; j++) units.push({ t: 'add', bn: as[j].bn, bHtml: esc(as[j].text) });
                 pending = [];
             }
-
             rows.forEach(function (r) {
                 if (r.t === 'same') {
                     flush();
-                    out.push({ t: 'same', an: r.an, bn: r.bn, html: esc(r.text) || '&nbsp;' });
+                    units.push({ t: 'same', an: r.an, bn: r.bn, aHtml: esc(r.text), bHtml: esc(r.text) });
                 } else pending.push(r);
             });
             flush();
+            return units;
+        }
 
-            return out.map(function (o) {
-                var sign = o.t === 'add' ? '+' : (o.t === 'del' ? '-' : ' ');
-                return '<div class="diff-row ' + o.t + '">' +
-                    '<span class="ln">' + (o.an || '') + '</span>' +
-                    '<span class="ln">' + (o.bn || '') + '</span>' +
-                    '<span class="sign">' + sign + '</span>' +
-                    '<span class="code">' + o.html + '</span></div>';
+        // ---- 并排视图（IDEA 风格）：长未变更段自动折叠 ----
+        function renderSideBySide(units) {
+            var out = [], i = 0;
+            function sdRow(u) {
+                if (u.t === 'same') {
+                    return '<div class="sd-row same">' +
+                        '<span class="ln">' + u.an + '</span><span class="cell l">' + (u.aHtml || '&nbsp;') + '</span>' +
+                        '<span class="gutter"></span>' +
+                        '<span class="ln">' + u.bn + '</span><span class="cell r">' + (u.bHtml || '&nbsp;') + '</span></div>';
+                }
+                var hasA = u.aHtml !== undefined, hasB = u.bHtml !== undefined;
+                return '<div class="sd-row ' + u.t + '">' +
+                    '<span class="ln">' + (hasA ? u.an : '') + '</span>' +
+                    '<span class="cell l">' + (hasA ? (u.aHtml || '&nbsp;') : '') + '</span>' +
+                    '<span class="gutter"></span>' +
+                    '<span class="ln">' + (hasB ? u.bn : '') + '</span>' +
+                    '<span class="cell r">' + (hasB ? (u.bHtml || '&nbsp;') : '') + '</span></div>';
+            }
+            while (i < units.length) {
+                var u = units[i];
+                if (u.t !== 'same') { out.push(sdRow(u)); i++; continue; }
+                var j = i;
+                while (j < units.length && units[j].t === 'same') j++;
+                var run = j - i;
+                if (run > FOLD_THRESHOLD && !expandedFolds[i]) {
+                    for (var k = i; k < i + FOLD_EDGE; k++) out.push(sdRow(units[k]));
+                    out.push('<div class="sd-row fold" onclick="toggleFold(' + i + ')">' +
+                        '<span class="ln"></span><span class="cell l">··· 展开 ' + (run - FOLD_EDGE * 2) + ' 行未更改 ···</span>' +
+                        '<span class="gutter"></span>' +
+                        '<span class="ln"></span><span class="cell r"></span></div>');
+                    for (var k = j - FOLD_EDGE; k < j; k++) out.push(sdRow(units[k]));
+                } else {
+                    for (var k = i; k < j; k++) out.push(sdRow(units[k]));
+                }
+                i = j;
+            }
+            return out.join('');
+        }
+
+        // ---- 统一视图 ----
+        function renderUnified(units) {
+            return units.map(function (u) {
+                if (u.t === 'same') {
+                    return '<div class="diff-row same">' +
+                        '<span class="ln">' + u.an + '</span><span class="ln">' + u.bn + '</span>' +
+                        '<span class="sign"> </span><span class="code">' + (u.aHtml || '&nbsp;') + '</span></div>';
+                }
+                var rows = '';
+                if (u.aHtml !== undefined) rows += '<div class="diff-row del">' +
+                    '<span class="ln">' + u.an + '</span><span class="ln"></span>' +
+                    '<span class="sign">-</span><span class="code">' + (u.aHtml || '&nbsp;') + '</span></div>';
+                if (u.bHtml !== undefined) rows += '<div class="diff-row add">' +
+                    '<span class="ln"></span><span class="ln">' + u.bn + '</span>' +
+                    '<span class="sign">+</span><span class="code">' + (u.bHtml || '&nbsp;') + '</span></div>';
+                return rows;
             }).join('');
+        }
+
+        function switchView(v) {
+            currentView = v;
+            $('btnSideView').classList.toggle('active', v === 'side');
+            $('btnUnifiedView').classList.toggle('active', v === 'unified');
+            renderCurrentView();
+        }
+
+        function toggleFold(key) {
+            expandedFolds[key] = !expandedFolds[key];
+            renderCurrentView();
         }
 
         var lastDiffText = '';
         var changeEls = [], changeIdx = -1;
+
+        function renderCurrentView() {
+            if (!lastUnits.length) return;
+            $('diffResult').innerHTML = currentView === 'side' ? renderSideBySide(lastUnits) : renderUnified(lastUnits);
+            changeEls = $('diffResult').querySelectorAll
+                ? Array.prototype.slice.call($('diffResult').querySelectorAll('.sd-row.change, .sd-row.del, .sd-row.add, .diff-row.del, .diff-row.add'))
+                : [];
+            changeIdx = -1;
+            updateNavBadge();
+        }
 
         function doDiff() {
             ignoreWs = $('ignoreWs').checked;
@@ -279,6 +398,7 @@
                 $('diffBadge').textContent = '';
                 $('navBadge').textContent = '';
                 lastDiffText = '';
+                lastUnits = [];
                 return;
             }
             var rows = diffLines(a, b);
@@ -289,7 +409,8 @@
                 text.push((r.t === 'add' ? '+' : r.t === 'del' ? '-' : ' ') + r.text);
             });
             lastDiffText = text.join('\n');
-            $('diffResult').innerHTML = renderDiff(rows);
+            lastUnits = buildUnits(rows);
+            expandedFolds = {};
             $('resultPanel').style.display = 'block';
 
             var b2 = $('diffBadge');
@@ -297,11 +418,7 @@
             b2.className = 'badge ' + (adds + dels > 0 ? 'badge-err' : 'badge-ok');
             $('resultBadge').textContent = adds + dels === 0 ? '两段文本完全一致' : '';
 
-            changeEls = $('diffResult').querySelectorAll
-                ? Array.prototype.slice.call($('diffResult').querySelectorAll('.diff-row.del, .diff-row.add'))
-                : [];
-            changeIdx = -1;
-            updateNavBadge();
+            renderCurrentView();
         }
 
         function updateNavBadge() {
@@ -366,7 +483,9 @@
             $('navBadge').textContent = '';
             $('resultBadge').textContent = '';
             lastDiffText = '';
+            lastUnits = [];
             changeEls = []; changeIdx = -1;
+            expandedFolds = {};
             updateLineNumbers($('inputA'), $('linesA'));
             updateLineNumbers($('inputB'), $('linesB'));
             updateSize('inputA', 'sizeBadgeA');
