@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>随机生成器</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .gen-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 13px; color: #666; }
+        .gen-row input[type="number"], .gen-row input[type="text"] {
+            padding: 7px 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; background: #fff; color: #333; width: 90px;
+            font-family: Consolas, monospace;
+        }
+        .gen-row input[type="range"] { accent-color: #4a9eff; vertical-align: middle; }
+        .gen-row label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
+        .gen-row input[type="checkbox"] { accent-color: #4a9eff; }
+        .result-box {
+            background: #fafbfc; border: 1px solid #dde1e6; border-radius: 8px;
+            padding: 12px 14px; font-family: Consolas, monospace; font-size: 13px;
+            line-height: 1.9; word-break: break-all; min-height: 40px;
+            cursor: pointer; user-select: all;
+        }
+        .result-box:hover { border-color: #4a9eff; }
+        .strength { font-size: 12px; padding: 2px 10px; border-radius: 10px; font-weight: 600; }
+        .st-weak { background: #ffeef0; color: #c62828; }
+        .st-mid { background: #fff3e0; color: #ef6c00; }
+        .st-strong { background: #e8f5e9; color: #2e7d32; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>随机生成器</h1>
+        <p class="subtitle">UUID · 密码 · 随机数 · 随机端口 · 全部本地生成</p>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>UUID v4</h3>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <select id="uuidCount" class="indent-select">
+                        <option>1</option><option selected>3</option><option>5</option><option>10</option>
+                    </select>
+                    <button class="btn-primary btn-sm" onclick="genUuids()">生成</button>
+                </div>
+            </div>
+            <div class="result-box" id="uuidOut" onclick="copyBox('uuidOut')">点击生成 UUID（点击结果可复制）</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>随机密码</h3></div>
+            <div class="gen-row" style="margin-bottom:10px;">
+                <span>长度: <input type="range" id="pwLen" min="4" max="64" value="16"><span id="pwLenVal" style="font-family:Consolas,monospace; color:#2c3e50;">16</span></span>
+                <label><input type="checkbox" id="pwUpper" checked>大写</label>
+                <label><input type="checkbox" id="pwLower" checked>小写</label>
+                <label><input type="checkbox" id="pwDigit" checked>数字</label>
+                <label><input type="checkbox" id="pwSymbol">符号</label>
+                <label><input type="checkbox" id="pwNoAmb" title="排除 0 O 1 l I">排除易混淆</label>
+                <button class="btn-primary btn-sm" onclick="genPassword()">生成</button>
+                <span class="strength st-mid" id="pwStrength"></span>
+            </div>
+            <div class="result-box" id="pwOut" onclick="copyBox('pwOut')">点击生成密码</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>随机数</h3>
+                <button class="btn-primary btn-sm" onclick="genNumbers()">生成</button>
+            </div>
+            <div class="gen-row" style="margin-bottom:10px;">
+                <span>范围: <input type="number" id="numMin" value="1"> ~ <input type="number" id="numMax" value="100"></span>
+                <span>个数: <input type="number" id="numCount" value="5" style="width:64px"></span>
+                <label><input type="checkbox" id="numUnique">不重复</label>
+            </div>
+            <div class="result-box" id="numOut" onclick="copyBox('numOut')">点击生成随机数</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>随机端口</h3>
+                <button class="btn-primary btn-sm" onclick="genPort()">生成</button>
+            </div>
+            <div class="result-box" id="portOut" onclick="copyBox('portOut')">点击生成 1024-65535 之间的端口</div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        function randInt(min, max) { // 含两端
+            var range = max - min + 1;
+            if (range <= 0) return min;
+            var buf = new Uint32Array(1);
+            var limit = Math.floor(4294967296 / range) * range;
+            var x;
+            do { crypto.getRandomValues(buf); x = buf[0]; } while (x >= limit);
+            return min + (x % range);
+        }
+
+        function uuidv4() {
+            var b = new Uint8Array(16);
+            crypto.getRandomValues(b);
+            b[6] = (b[6] & 0x0f) | 0x40;
+            b[8] = (b[8] & 0x3f) | 0x80;
+            var h = [];
+            for (var i = 0; i < 256; i++) h[i] = (i < 16 ? '0' : '') + i.toString(16);
+            var s = '';
+            for (var i = 0; i < 16; i++) {
+                s += h[b[i]];
+                if (i === 3 || i === 5 || i === 7 || i === 9) s += '-';
+            }
+            return s;
+        }
+
+        var AMBIGUOUS = /[0O1lI]/g;
+
+        // 按勾选的字符集拼池子，并保证每种至少出现一次
+        function passwordFromOptions(opts) {
+            var sets = [];
+            if (opts.upper) sets.push('ABCDEFGHJKLMNPQRSTUVWXYZ');
+            if (opts.lower) sets.push('abcdefghijkmnpqrstuvwxyz');
+            if (opts.digit) sets.push('23456789');
+            if (opts.symbol) sets.push('!@#$%^&*()-_=+[]{};:,.<>?/~');
+            if (!sets.length) throw new Error('请至少勾选一种字符集');
+            if (opts.noAmb) sets = sets.map(function (s) { return s.replace(AMBIGUOUS, ''); });
+            var pool = sets.join('');
+            if (opts.len < sets.length) throw new Error('长度不能小于字符集种类数（' + sets.length + '）');
+
+            var chars = sets.map(function (s) { return s.charAt(randInt(0, s.length - 1)); });
+            while (chars.length < opts.len) chars.push(pool.charAt(randInt(0, pool.length - 1)));
+            // Fisher-Yates 洗牌
+            for (var i = chars.length - 1; i > 0; i--) {
+                var j = randInt(0, i);
+                var t = chars[i]; chars[i] = chars[j]; chars[j] = t;
+            }
+            return chars.join('');
+        }
+
+        function entropyBits(len, poolSize) { return Math.round(len * Math.log2(poolSize)); }
+
+        function genUuids() {
+            var n = +$('uuidCount').value;
+            var arr = [];
+            for (var i = 0; i < n; i++) arr.push(uuidv4());
+            $('uuidOut').textContent = arr.join('\n');
+        }
+
+        function genPassword() {
+            try {
+                var opts = {
+                    len: +$('pwLen').value,
+                    upper: $('pwUpper').checked,
+                    lower: $('pwLower').checked,
+                    digit: $('pwDigit').checked,
+                    symbol: $('pwSymbol').checked,
+                    noAmb: $('pwNoAmb').checked
+                };
+                var pw = passwordFromOptions(opts);
+                $('pwOut').textContent = pw;
+                var bits = entropyBits(pw.length, countPool(opts));
+                var s = $('pwStrength');
+                var label = bits < 45 ? '弱' : bits < 80 ? '中' : '强';
+                s.textContent = '强度: ' + label + ' · 熵 ' + bits + ' bit';
+                s.className = 'strength ' + (bits < 45 ? 'st-weak' : bits < 80 ? 'st-mid' : 'st-strong');
+            } catch (e) {
+                showToast(e.message);
+            }
+        }
+
+        function countPool(opts) {
+            var n = 0;
+            if (opts.upper) n += opts.noAmb ? 25 : 26;
+            if (opts.lower) n += opts.noAmb ? 24 : 26;
+            if (opts.digit) n += opts.noAmb ? 8 : 10;
+            if (opts.symbol) n += 27;
+            return n;
+        }
+
+        function genNumbers() {
+            var min = +$('numMin').value, max = +$('numMax').value;
+            var count = Math.min(+$('numCount').value || 1, 1000);
+            var unique = $('numUnique').checked;
+            if (min > max) { showToast('范围下限不能大于上限'); return; }
+            if (unique && count > max - min + 1) { showToast('不重复个数超出范围'); return; }
+            var used = {}, arr = [];
+            while (arr.length < count) {
+                var x = randInt(min, max);
+                if (unique && used[x]) continue;
+                used[x] = true;
+                arr.push(x);
+            }
+            $('numOut').textContent = arr.join(', ');
+        }
+
+        function genPort() {
+            $('portOut').textContent = String(randInt(1024, 65535));
+        }
+
+        function copyBox(id) {
+            var t = $(id).textContent;
+            if (!t || t.indexOf('点击') === 0) return;
+            navigator.clipboard.writeText(t).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        $('pwLen').addEventListener('input', function () { $('pwLenVal').textContent = this.value; });
+    </script>
+</body>
+</html>

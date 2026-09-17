@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>颜色工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .color-layout { display: flex; gap: 20px; }
+        .preview-col { flex-shrink: 0; }
+        .preview-box {
+            width: 160px; height: 160px; border-radius: 10px;
+            border: 1px solid #e0e4e8; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .preview-tip { text-align: center; font-size: 12px; color: #aaa; margin-top: 6px; }
+        .form-col { flex: 1; min-width: 0; }
+        .field-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+        .field-row label { width: 44px; font-size: 13px; color: #666; flex-shrink: 0; }
+        .field-row input {
+            padding: 8px 10px; border: 1px solid #dde1e6; border-radius: 6px;
+            background: #fafbfc; font-family: Consolas, monospace; font-size: 13px; color: #333;
+        }
+        .field-row input:focus { outline: none; border-color: #4a9eff; }
+        .field-row input[type="range"] { accent-color: #4a9eff; flex: 1; min-width: 100px; padding: 0; }
+        .field-row .num { width: 56px; }
+        .field-row .hex { width: 110px; }
+        .fmt-list { display: flex; flex-direction: column; gap: 6px; }
+        .fmt-item {
+            display: flex; justify-content: space-between; align-items: center;
+            background: #fafbfc; border: 1px solid #dde1e6; border-radius: 6px;
+            padding: 7px 12px; font-family: Consolas, monospace; font-size: 13px;
+            cursor: pointer;
+        }
+        .fmt-item:hover { border-color: #4a9eff; }
+        .fmt-item .k { color: #999; font-family: 'Segoe UI', sans-serif; font-size: 12px; }
+        .palette { display: flex; gap: 6px; flex-wrap: wrap; }
+        .swatch {
+            width: 40px; height: 40px; border-radius: 6px; cursor: pointer;
+            border: 1px solid rgba(0,0,0,0.08);
+        }
+        .swatch:hover { transform: scale(1.1); }
+        .contrast-row { display: flex; gap: 12px; align-items: center; font-size: 13px; color: #666; flex-wrap: wrap; }
+        .wcag { font-size: 12px; padding: 2px 10px; border-radius: 10px; font-weight: 600; }
+        .wcag-pass { background: #e8f5e9; color: #2e7d32; }
+        .wcag-fail { background: #ffeef0; color: #c62828; }
+        @media (max-width: 640px) { .color-layout { flex-direction: column; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>颜色工具</h1>
+        <p class="subtitle">HEX / RGB / HSL 互转 · 色阶 · 对比度检查</p>
+
+        <div class="panel">
+            <div class="color-layout">
+                <div class="preview-col">
+                    <div class="preview-box" id="preview" onclick="copyText(current.hex)"></div>
+                    <div class="preview-tip">点击复制 HEX</div>
+                </div>
+                <div class="form-col">
+                    <div class="field-row">
+                        <label>HEX</label>
+                        <input type="text" class="hex" id="hexInput" placeholder="#4a9eff">
+                    </div>
+                    <div class="field-row">
+                        <label>RGB</label>
+                        <input type="range" id="rRange" min="0" max="255"><input type="number" class="num" id="rNum">
+                        <input type="range" id="gRange" min="0" max="255"><input type="number" class="num" id="gNum">
+                        <input type="range" id="bRange" min="0" max="255"><input type="number" class="num" id="bNum">
+                    </div>
+                    <div class="field-row">
+                        <label>HSL</label>
+                        <input type="range" id="hRange" min="0" max="360"><input type="number" class="num" id="hNum">
+                        <input type="range" id="sRange" min="0" max="100"><input type="number" class="num" id="sNum">
+                        <input type="range" id="lRange" min="0" max="100"><input type="number" class="num" id="lNum">
+                    </div>
+                    <div class="field-row">
+                        <button class="btn-outline btn-sm" onclick="randomColor()">随机颜色</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>常用格式（点击复制）</h3></div>
+            <div class="fmt-list" id="fmtList"></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>色阶</h3></div>
+            <div class="palette" id="palette"></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>文字对比度</h3></div>
+            <div class="contrast-row">
+                <span>当前颜色上的文字可读性:</span>
+                <span id="contrastWhite"></span>
+                <span id="contrastBlack"></span>
+            </div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        var current = { r: 74, g: 158, b: 255 };
+
+        function clamp(v, min, max) { return Math.min(max, Math.max(min, v)); }
+
+        function rgbToHex(r, g, b) {
+            function h(n) { var s = clamp(Math.round(n), 0, 255).toString(16); return s.length < 2 ? '0' + s : s; }
+            return '#' + h(r) + h(g) + h(b);
+        }
+
+        function hexToRgb(hex) {
+            var m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+            if (!m) return null;
+            var v = parseInt(m[1], 16);
+            return { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 };
+        }
+
+        function rgbToHsl(r, g, b) {
+            r /= 255; g /= 255; b /= 255;
+            var max = Math.max(r, g, b), min = Math.min(r, g, b);
+            var h = 0, s = 0, l = (max + min) / 2;
+            if (max !== min) {
+                var d = max - min;
+                s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+                if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+                else if (max === g) h = (b - r) / d + 2;
+                else h = (r - g) / d + 4;
+                h *= 60;
+            }
+            return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+        }
+
+        function hslToRgb(h, s, l) {
+            h = ((h % 360) + 360) % 360; s = clamp(s, 0, 100) / 100; l = clamp(l, 0, 100) / 100;
+            var c = (1 - Math.abs(2 * l - 1)) * s;
+            var x = c * (1 - Math.abs((h / 60) % 2 - 1));
+            var m = l - c / 2, r = 0, g = 0, b = 0;
+            if (h < 60) { r = c; g = x; }
+            else if (h < 120) { r = x; g = c; }
+            else if (h < 180) { g = c; b = x; }
+            else if (h < 240) { g = x; b = c; }
+            else if (h < 300) { r = x; b = c; }
+            else { r = c; b = x; }
+            return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) };
+        }
+
+        function luminance(r, g, b) {
+            function f(v) {
+                v /= 255;
+                return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+            }
+            return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+        }
+
+        function contrastRatio(rgb1, rgb2) {
+            var l1 = luminance(rgb1.r, rgb1.g, rgb1.b);
+            var l2 = luminance(rgb2.r, rgb2.g, rgb2.b);
+            var hi = Math.max(l1, l2), lo = Math.min(l1, l2);
+            return (hi + 0.05) / (lo + 0.05);
+        }
+
+        function wcagTag(ratio, level) {
+            var pass = level === 'AA' ? ratio >= 4.5 : ratio >= 7;
+            return '<span class="wcag ' + (pass ? 'wcag-pass' : 'wcag-fail') + '">' + level + ' ' + (pass ? '通过' : '不通过') + '</span>';
+        }
+
+        function setFromRgb(r, g, b) {
+            current = { r: clamp(Math.round(r), 0, 255), g: clamp(Math.round(g), 0, 255), b: clamp(Math.round(b), 0, 255) };
+            render();
+        }
+
+        function render() {
+            var c = current;
+            var hex = rgbToHex(c.r, c.g, c.b);
+            var hsl = rgbToHsl(c.r, c.g, c.b);
+
+            $('preview').style.background = hex;
+            if (document.activeElement !== $('hexInput')) $('hexInput').value = hex;
+
+            [['r', c.r], ['g', c.g], ['b', c.b]].forEach(function (p) {
+                if (document.activeElement !== $(p[0] + 'Range')) $(p[0] + 'Range').value = p[1];
+                if (document.activeElement !== $(p[0] + 'Num')) $(p[0] + 'Num').value = p[1];
+            });
+            [['h', hsl.h], ['s', hsl.s], ['l', hsl.l]].forEach(function (p) {
+                if (document.activeElement !== $(p[0] + 'Range')) $(p[0] + 'Range').value = p[1];
+                if (document.activeElement !== $(p[0] + 'Num')) $(p[0] + 'Num').value = p[1];
+            });
+
+            $('fmtList').innerHTML =
+                fmtItem('HEX', hex) +
+                fmtItem('RGB', 'rgb(' + c.r + ', ' + c.g + ', ' + c.b + ')') +
+                fmtItem('RGBA', 'rgba(' + c.r + ', ' + c.g + ', ' + c.b + ', 1)') +
+                fmtItem('HSL', 'hsl(' + hsl.h + ', ' + hsl.s + '%, ' + hsl.l + '%)');
+
+            // 色阶：向白和黑各 5 档
+            var sw = '';
+            for (var i = 5; i >= 1; i--) {
+                var f = i / 6;
+                sw += swatch(rgbToHex(c.r + (255 - c.r) * f, c.g + (255 - c.g) * f, c.b + (255 - c.b) * f));
+            }
+            sw += swatch(hex);
+            for (var i = 1; i <= 5; i++) {
+                var f = i / 6;
+                sw += swatch(rgbToHex(c.r * (1 - f), c.g * (1 - f), c.b * (1 - f)));
+            }
+            $('palette').innerHTML = sw;
+
+            var rw = contrastRatio(c, { r: 255, g: 255, b: 255 });
+            var rb = contrastRatio(c, { r: 0, g: 0, b: 0 });
+            $('contrastWhite').innerHTML = '白字对比度 ' + rw.toFixed(2) + ' ' + wcagTag(rw, 'AA') + ' ' + wcagTag(rw, 'AAA');
+            $('contrastBlack').innerHTML = '黑字对比度 ' + rb.toFixed(2) + ' ' + wcagTag(rb, 'AA') + ' ' + wcagTag(rb, 'AAA');
+        }
+
+        function fmtItem(k, v) {
+            return '<div class="fmt-item" onclick="copyText(\'' + v.replace(/'/g, '') + '\')"><span class="k">' + k + '</span><span>' + v + '</span></div>';
+        }
+
+        function swatch(hex) {
+            return '<div class="swatch" style="background:' + hex + '" title="' + hex + '" onclick="applyHex(\'' + hex + '\')"></div>';
+        }
+
+        function applyHex(hex) {
+            var rgb = hexToRgb(hex);
+            if (rgb) setFromRgb(rgb.r, rgb.g, rgb.b);
+        }
+
+        function copyText(t) {
+            navigator.clipboard.writeText(t).then(function () { showToast('已复制 ' + t); });
+        }
+
+        function randomColor() {
+            var buf = new Uint8Array(3);
+            crypto.getRandomValues(buf);
+            setFromRgb(buf[0], buf[1], buf[2]);
+        }
+
+        // 事件：HEX 输入
+        $('hexInput').addEventListener('input', function () {
+            var rgb = hexToRgb(this.value);
+            if (rgb) setFromRgb(rgb.r, rgb.g, rgb.b);
+        });
+        // RGB 控件
+        ['r', 'g', 'b'].forEach(function (k) {
+            function applyChannel(v) {
+                setFromRgb(k === 'r' ? v : current.r, k === 'g' ? v : current.g, k === 'b' ? v : current.b);
+            }
+            $(k + 'Range').addEventListener('input', function () {
+                $(k + 'Num').value = this.value;
+                applyChannel(+this.value);
+            });
+            $(k + 'Num').addEventListener('input', function () {
+                var v = +this.value;
+                if (!isNaN(v)) applyChannel(v);
+            });
+        });
+        // HSL 控件
+        ['h', 's', 'l'].forEach(function (k) {
+            function applyHsl() {
+                var rgb = hslToRgb(+$('hNum').value || 0, +$('sNum').value || 0, +$('lNum').value || 0);
+                setFromRgb(rgb.r, rgb.g, rgb.b);
+            }
+            $(k + 'Range').addEventListener('input', function () {
+                $(k + 'Num').value = this.value;
+                applyHsl();
+            });
+            $(k + 'Num').addEventListener('input', function () {
+                if (!isNaN(+this.value)) applyHsl();
+            });
+        });
+
+        render();
+    </script>
+</body>
+</html>

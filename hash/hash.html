@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>哈希计算工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .algo-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 13px; color: #666; }
+        .algo-row label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
+        .algo-row input[type="checkbox"] { accent-color: #4a9eff; }
+        .hash-item {
+            display: flex; gap: 12px; align-items: baseline; padding: 8px 10px;
+            border-bottom: 1px solid #f0f2f5; font-family: Consolas, monospace; font-size: 12px;
+        }
+        .hash-item .algo { color: #1565c0; font-weight: 600; width: 90px; flex-shrink: 0; }
+        .hash-item .value { word-break: break-all; flex: 1; color: #333; }
+        .hash-item button { flex-shrink: 0; }
+        .file-row { display: flex; gap: 10px; align-items: center; font-size: 13px; color: #666; flex-wrap: wrap; }
+        #fileStatus { color: #2e7d32; font-family: Consolas, monospace; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>哈希计算工具</h1>
+        <p class="subtitle">MD5 / SHA 家族 · 文本与文件 · 全部本地计算</p>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>文本</h3>
+                <span class="badge badge-info" id="sizeBadge"></span>
+            </div>
+            <div class="editor-wrap" style="height:140px;">
+                <div class="line-numbers" id="inputLines"><div>1</div></div>
+                <textarea id="input" placeholder="输入要计算哈希的文本..."></textarea>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>文件哈希</h3></div>
+            <div class="file-row">
+                <button class="btn-outline btn-sm" onclick="$('fileInput').click()">选择文件</button>
+                <span id="fileStatus">未选择文件</span>
+                <input type="file" id="fileInput" style="display:none">
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="algo-row" style="margin-bottom:12px;">
+                <span>算法:</span>
+                <label><input type="checkbox" class="algo" value="md5" checked>MD5</label>
+                <label><input type="checkbox" class="algo" value="SHA-1">SHA-1</label>
+                <label><input type="checkbox" class="algo" value="SHA-256" checked>SHA-256</label>
+                <label><input type="checkbox" class="algo" value="SHA-384">SHA-384</label>
+                <label><input type="checkbox" class="algo" value="SHA-512">SHA-512</label>
+                <label><input type="checkbox" id="upperHex">大写输出</label>
+                <button class="btn-primary btn-sm" onclick="hashText()">计算</button>
+            </div>
+            <div id="hashResult"></div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        // ---- MD5 核心（RFC 1321）----
+        // input 为 latin1 字节串（每字符一字节），bitLen 为比特长度
+        function md5Core(binString, bitLen) {
+            function safeAdd(x, y) {
+                var lsw = (x & 0xFFFF) + (y & 0xFFFF);
+                var msw = (x >> 16) + (y >> 16) + (lsw >> 16);
+                return (msw << 16) | (lsw & 0xFFFF);
+            }
+            function bitRol(num, cnt) { return (num << cnt) | (num >>> (32 - cnt)); }
+
+            var K = [
+                -680876936, -389564586, 606105819, -1044525330, -176418897, 1200080426, -1473231341, -45705983,
+                1770035416, -1958414417, -42063, -1990404162, 1804603682, -40341101, -1502002290, 1236535329,
+                -165796510, -1069501632, 643717713, -373897302, -701558691, 38016083, -660478335, -405537848,
+                568446438, -1019803690, -187363961, 1163531501, -1444681467, -51403784, 1735328473, -1926607734,
+                -378558, -2022574463, 1839030562, -35309556, -1530992060, 1272893353, -155497632, -1094730640,
+                681279174, -358537222, -722521979, 76029189, -640364487, -421815835, 530742520, -995338651,
+                -198630844, 1126891415, -1416354905, -57434055, 1700485571, -1894986606, -1051523, -2054922799,
+                1873313359, -30611744, -1560198380, 1309151649, -145523070, -1120210379, 718787259, -343485551
+            ];
+            var x = [];
+            for (var i = 0; i < binString.length * 8; i += 8)
+                x[i >> 5] = (x[i >> 5] | 0) | ((binString.charCodeAt(i / 8) & 0xFF) << (i % 32));
+            x[bitLen >> 5] |= 0x80 << (bitLen % 32);
+            x[(((bitLen + 64) >>> 9) << 4) + 14] = bitLen;
+
+            var a = 1732584193, b = -271733879, c = -1732584194, d = 271733878;
+            var S1 = [7, 12, 17, 22], S2 = [5, 9, 14, 20], S3 = [4, 11, 16, 23], S4 = [6, 10, 15, 21];
+            var G2 = [1, 6, 11, 0, 5, 10, 15, 4, 9, 14, 3, 8, 13, 2, 7, 12];
+            var G3 = [5, 8, 11, 14, 1, 4, 7, 10, 13, 0, 3, 6, 9, 12, 15, 2];
+            var G4 = [0, 7, 14, 5, 12, 3, 10, 1, 8, 15, 6, 13, 4, 11, 2, 9];
+
+            for (i = 0; i < x.length; i += 16) {
+                var oa = a, ob = b, oc = c, od = d, f, s, g, tmp, j;
+                for (j = 0; j < 16; j++) {
+                    f = (b & c) | (~b & d); s = S1[j % 4]; g = j;
+                    tmp = d; d = c; c = b;
+                    b = safeAdd(b, bitRol(safeAdd(safeAdd(a, f), safeAdd(x[i + g], K[j])), s)); a = tmp;
+                }
+                for (j = 0; j < 16; j++) {
+                    f = (b & d) | (c & ~d); s = S2[j % 4]; g = G2[j];
+                    tmp = d; d = c; c = b;
+                    b = safeAdd(b, bitRol(safeAdd(safeAdd(a, f), safeAdd(x[i + g], K[16 + j])), s)); a = tmp;
+                }
+                for (j = 0; j < 16; j++) {
+                    f = b ^ c ^ d; s = S3[j % 4]; g = G3[j];
+                    tmp = d; d = c; c = b;
+                    b = safeAdd(b, bitRol(safeAdd(safeAdd(a, f), safeAdd(x[i + g], K[32 + j])), s)); a = tmp;
+                }
+                for (j = 0; j < 16; j++) {
+                    f = c ^ (b | ~d); s = S4[j % 4]; g = G4[j];
+                    tmp = d; d = c; c = b;
+                    b = safeAdd(b, bitRol(safeAdd(safeAdd(a, f), safeAdd(x[i + g], K[48 + j])), s)); a = tmp;
+                }
+                a = safeAdd(a, oa); b = safeAdd(b, ob); c = safeAdd(c, oc); d = safeAdd(d, od);
+            }
+
+            var out = '', words = [a, b, c, d];
+            for (i = 0; i < 4; i++)
+                for (j = 0; j < 4; j++)
+                    out += '0123456789abcdef'.charAt((words[i] >>> (j * 8 + 4)) & 0xF) +
+                           '0123456789abcdef'.charAt((words[i] >>> (j * 8)) & 0xF);
+            return out;
+        }
+
+        // 文本 MD5：UTF-8 编码后按字节计算
+        function md5(text) {
+            var bytes = new TextEncoder().encode(text);
+            var bin = '', CHUNK = 0x8000;
+            for (var i = 0; i < bytes.length; i += CHUNK)
+                bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+            return md5Core(bin, bytes.length * 8);
+        }
+
+        // ---- SHA 家族（原生 SubtleCrypto） ----
+        function bufToHex(buf) {
+            var bytes = new Uint8Array(buf), out = '';
+            for (var i = 0; i < bytes.length; i++) out += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
+            return out;
+        }
+
+        function shaHex(algo, text) {
+            return crypto.subtle.digest(algo, new TextEncoder().encode(text))
+                .then(function (buf) { return bufToHex(buf); });
+        }
+
+        function shaHexBuffer(algo, buffer) {
+            return crypto.subtle.digest(algo, buffer)
+                .then(function (buf) { return bufToHex(buf); });
+        }
+
+        function bufferToBin(buf) {
+            var bytes = new Uint8Array(buf), out = '', CHUNK = 0x8000;
+            for (var i = 0; i < bytes.length; i += CHUNK)
+                out += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+            return out;
+        }
+
+        function selectedAlgos() {
+            return Array.prototype.filter.call(document.querySelectorAll('.algo'), function (c) { return c.checked; })
+                .map(function (c) { return c.value; });
+        }
+
+        function renderResults(pairs) {
+            var upper = $('upperHex').checked;
+            window._lastHashes = pairs.map(function (p) { return upper ? p.value.toUpperCase() : p.value; });
+            $('hashResult').innerHTML = pairs.map(function (p, i) {
+                return '<div class="hash-item"><span class="algo">' + p.algo + '</span>' +
+                    '<span class="value">' + window._lastHashes[i] + '</span>' +
+                    '<button class="btn-outline btn-sm" onclick="copyHash(' + i + ')">复制</button></div>';
+            }).join('');
+        }
+
+        function copyHash(i) {
+            navigator.clipboard.writeText(window._lastHashes[i]).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        async function computeAndRender(text, fileBuffer) {
+            var algos = selectedAlgos();
+            if (!algos.length) { showToast('请至少勾选一个算法'); return; }
+            var pairs = [];
+            for (var i = 0; i < algos.length; i++) {
+                var algo = algos[i];
+                try {
+                    var hex;
+                    if (fileBuffer) {
+                        hex = algo === 'md5' ? md5Core(bufferToBin(fileBuffer), fileBuffer.byteLength * 8) : await shaHexBuffer(algo, fileBuffer);
+                    } else {
+                        hex = algo === 'md5' ? md5(text) : await shaHex(algo, text);
+                    }
+                    pairs.push({ algo: algo, value: hex });
+                } catch (e) {
+                    pairs.push({ algo: algo, value: '计算失败' + (algo === 'md5' ? '' : '（crypto.subtle 需要 file:// 或 HTTPS 环境）') });
+                }
+            }
+            renderResults(pairs);
+        }
+
+        async function hashText() {
+            var text = $('input').value;
+            if (!text) { showToast('请输入文本或选择文件'); return; }
+            await computeAndRender(text, null);
+        }
+
+        $('fileInput').addEventListener('change', function () {
+            var f = this.files && this.files[0];
+            this.value = '';
+            if (!f) return;
+            $('fileStatus').textContent = f.name + '（' + formatSize(f.size) + '）';
+            var reader = new FileReader();
+            reader.onload = function () { computeAndRender('', reader.result); };
+            reader.onerror = function () { showToast('文件读取失败'); };
+            reader.readAsArrayBuffer(f);
+        });
+
+        bindEditor('input', 'inputLines', 'sizeBadge');
+    </script>
+</body>
+</html>

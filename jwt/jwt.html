@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JWT 解析工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        pre.json-block {
+            background: #fafbfc; border: 1px solid #dde1e6; border-radius: 8px;
+            padding: 12px 14px; font-family: Consolas, monospace; font-size: 13px;
+            line-height: 1.7; overflow: auto; max-height: 260px;
+            white-space: pre-wrap; word-break: break-all; margin: 0;
+        }
+        .exp-banner {
+            margin-top: 10px; padding: 10px 14px; border-radius: 6px;
+            font-size: 13px; font-weight: 600;
+        }
+        .exp-ok { background: #e8f5e9; color: #2e7d32; }
+        .exp-soon { background: #fff3e0; color: #ef6c00; }
+        .exp-dead { background: #ffeef0; color: #c62828; }
+        .part-label { font-size: 12px; color: #999; margin-bottom: 6px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>JWT 解析工具</h1>
+        <p class="subtitle">Header / Payload 解码 · 过期时间 · 仅本地解析不校验签名</p>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>Token</h3>
+                <span class="badge badge-info" id="sizeBadge"></span>
+            </div>
+            <div class="editor-wrap" style="height:140px;">
+                <div class="line-numbers" id="inputLines"><div>1</div></div>
+                <textarea id="input" placeholder="粘贴 JWT，格式：xxxxx.yyyyy.zzzzz"></textarea>
+            </div>
+        </div>
+
+        <div class="panel" id="resultPanel" style="display:none;">
+            <div class="panel-header">
+                <h3>解析结果</h3>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <span class="badge" id="statusBadge"></span>
+                    <button class="btn-outline btn-sm" onclick="copyPart('header')">复制 Header</button>
+                    <button class="btn-outline btn-sm" onclick="copyPart('payload')">复制 Payload</button>
+                </div>
+            </div>
+            <div class="part-label">HEADER（头部）</div>
+            <pre class="json-block" id="headerBlock"></pre>
+            <div class="part-label" style="margin-top:14px;">PAYLOAD（负载）</div>
+            <pre class="json-block" id="payloadBlock"></pre>
+            <div class="exp-banner" id="expBanner" style="display:none;"></div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        function b64urlDecode(s) {
+            s = s.replace(/-/g, '+').replace(/_/g, '/');
+            while (s.length % 4) s += '=';
+            var bin = atob(s);
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return new TextDecoder('utf-8').decode(bytes);
+        }
+
+        // 返回 {header, payload}（均为对象）；非法输入抛异常
+        function decodeJwt(token) {
+            var parts = token.trim().split('.');
+            if (parts.length !== 3) throw new Error('JWT 必须由三段组成（header.payload.signature）');
+            var header = JSON.parse(b64urlDecode(parts[0]));
+            var payload = JSON.parse(b64urlDecode(parts[1]));
+            return { header: header, payload: payload };
+        }
+
+        function pad(n) { return n < 10 ? '0' + n : '' + n; }
+        function fmtLocal(d) {
+            return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+                pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        }
+
+        function expInfo(exp) {
+            var d = new Date(exp * 1000);
+            var diff = exp * 1000 - Date.now();
+            var state = diff <= 0 ? 'dead' : diff < 86400000 ? 'soon' : 'ok';
+            var txt;
+            if (state === 'dead') txt = '已过期 ' + fmtDuration(-diff) + '（' + fmtLocal(d) + '）';
+            else txt = '有效期至 ' + fmtLocal(d) + ' · 剩余 ' + fmtDuration(diff);
+            return { state: state, text: txt };
+        }
+
+        function fmtDuration(ms) {
+            var s = Math.floor(ms / 1000);
+            var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+            if (d > 0) return d + ' 天 ' + h + ' 小时';
+            if (h > 0) return h + ' 小时 ' + m + ' 分';
+            if (m > 0) return m + ' 分 ' + sec + ' 秒';
+            return sec + ' 秒';
+        }
+
+        function doParse() {
+            var token = $('input').value;
+            if (!token.trim()) {
+                $('resultPanel').style.display = 'none';
+                return;
+            }
+            try {
+                var r = decodeJwt(token);
+                $('resultPanel').style.display = 'block';
+                $('headerBlock').textContent = JSON.stringify(r.header, null, 2);
+                $('payloadBlock').textContent = JSON.stringify(r.payload, null, 2);
+                var b = $('statusBadge');
+                b.textContent = '解析成功';
+                b.className = 'badge badge-ok';
+
+                var banner = $('expBanner');
+                if (typeof r.payload.exp === 'number') {
+                    var info = expInfo(r.payload.exp);
+                    banner.textContent = info.text;
+                    banner.className = 'exp-banner exp-' + info.state;
+                    banner.style.display = 'block';
+                } else {
+                    banner.style.display = 'none';
+                }
+            } catch (e) {
+                $('resultPanel').style.display = 'none';
+                var b2 = $('statusBadge');
+                b2.textContent = '解析失败: ' + e.message;
+                b2.className = 'badge badge-err';
+            }
+        }
+
+        function copyPart(which) {
+            var t = $(which === 'header' ? 'headerBlock' : 'payloadBlock').textContent;
+            if (!t) { showToast('请先解析'); return; }
+            navigator.clipboard.writeText(t).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        var debTimer = null;
+        $('input').addEventListener('input', function () {
+            clearTimeout(debTimer);
+            debTimer = setTimeout(doParse, 300);
+        });
+
+        bindEditor('input', 'inputLines', 'sizeBadge');
+    </script>
+</body>
+</html>

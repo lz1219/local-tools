@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>电子木鱼</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        body { overflow-x: hidden; }
+        .fish-stage { text-align: center; position: relative; user-select: none; }
+        .merit-count {
+            font-size: 40px; font-weight: 700; color: #8d5a2b;
+            font-family: Consolas, monospace; margin-bottom: 4px;
+        }
+        .merit-label { font-size: 14px; color: #b08d5f; letter-spacing: 6px; margin-bottom: 20px; }
+        .combo {
+            font-size: 18px; font-weight: 700; color: #e65100;
+            min-height: 26px; margin-bottom: 8px;
+            opacity: 0; transition: opacity 0.2s;
+        }
+        .combo.show { opacity: 1; }
+        .fish {
+            width: 280px; margin: 0 auto; cursor: pointer; display: block;
+            transition: transform 0.05s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .fish.knocked { transform: scale(0.94); }
+        .float-plus {
+            position: absolute; font-size: 22px; font-weight: 700; color: #e65100;
+            pointer-events: none; animation: rise 0.9s ease-out forwards;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.8);
+        }
+        @keyframes rise {
+            from { opacity: 1; transform: translateY(0); }
+            to { opacity: 0; transform: translateY(-70px); }
+        }
+        .ctrl-row { display: flex; gap: 10px; justify-content: center; margin-top: 24px; flex-wrap: wrap; }
+        .verse { margin-top: 26px; font-size: 13px; color: #c9a97f; font-style: italic; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>电子木鱼</h1>
+        <p class="subtitle">敲走烦恼 · 积攒功德 · 支持空格键连敲</p>
+
+        <div class="panel fish-stage" id="stage">
+            <div class="merit-count" id="merit">0</div>
+            <div class="merit-label">功 德</div>
+            <div class="combo" id="combo"></div>
+            <svg class="fish" id="fish" viewBox="0 0 240 170" onclick="knock(event)">
+                <ellipse cx="115" cy="95" rx="95" ry="60" fill="#a9713a"/>
+                <ellipse cx="115" cy="88" rx="95" ry="55" fill="#c08a4d"/>
+                <polygon points="200,60 235,30 235,140 200,115" fill="#a9713a"/>
+                <polygon points="200,65 228,40 228,130 200,110" fill="#8d5a2b"/>
+                <circle cx="62" cy="80" r="11" fill="#5e3a17"/>
+                <circle cx="65" cy="77" r="4" fill="#fff"/>
+                <path d="M40 105 Q 70 122 105 118" stroke="#8d5a2b" stroke-width="5" fill="none" stroke-linecap="round"/>
+                <path d="M90 40 Q 130 30 165 42" stroke="#a9713a" stroke-width="6" fill="none" stroke-linecap="round"/>
+                <path d="M85 50 Q 130 40 170 52" stroke="#b57e42" stroke-width="4" fill="none" stroke-linecap="round"/>
+                <ellipse cx="115" cy="98" rx="60" ry="32" fill="none" stroke="#a9713a" stroke-width="3"/>
+                <ellipse cx="115" cy="100" rx="42" ry="22" fill="none" stroke="#a9713a" stroke-width="3"/>
+            </svg>
+            <div class="ctrl-row">
+                <button class="btn-primary" id="autoBtn" onclick="toggleAuto()">自动念经</button>
+                <button class="btn-outline" id="muteBtn" onclick="toggleMute()">静音</button>
+                <button class="btn-danger btn-sm" onclick="resetMerit()">功德清零</button>
+            </div>
+            <div class="verse" id="verse">施主，敲一敲，烦恼全消</div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        var merit = 0, combo = 0, lastKnock = 0;
+        var autoTimer = null, muted = false;
+        var audioCtx = null;
+
+        var VERSES = [
+            '施主，敲一敲，烦恼全消',
+            '色即是空，空即是色',
+            '善哉善哉',
+            '今日功德已满，明日请早',
+            '心平气自和，木鱼声声慢',
+            '一切有为法，如梦幻泡影'
+        ];
+
+        function formatMerit(n) {
+            if (n < 10000) return String(n);
+            var w = n / 10000;
+            return (w % 1 === 0 ? w : w.toFixed(1)) + ' 万';
+        }
+
+        function loadState() {
+            try { merit = parseInt(localStorage.getItem('fish-merit'), 10) || 0; } catch (e) {}
+        }
+
+        function saveState() {
+            try { localStorage.setItem('fish-merit', String(merit)); } catch (e) {}
+        }
+
+        function knockSound() {
+            if (muted) return;
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                var t = audioCtx.currentTime;
+                var master = audioCtx.createGain();
+                master.gain.value = 0.5;
+                master.connect(audioCtx.destination);
+
+                // 木鱼主体：低频正弦快速下滑 + 指数衰减
+                var o = audioCtx.createOscillator();
+                var g = audioCtx.createGain();
+                o.type = 'sine';
+                o.frequency.setValueAtTime(320, t);
+                o.frequency.exponentialRampToValueAtTime(110, t + 0.07);
+                g.gain.setValueAtTime(0.9, t);
+                g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+                o.connect(g); g.connect(master);
+                o.start(t); o.stop(t + 0.25);
+
+                // 敲击瞬态：短噪声
+                var len = Math.floor(audioCtx.sampleRate * 0.03);
+                var buf = audioCtx.createBuffer(1, len, audioCtx.sampleRate);
+                var data = buf.getChannelData(0);
+                for (var i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+                var noise = audioCtx.createBufferSource();
+                noise.buffer = buf;
+                var hp = audioCtx.createBiquadFilter();
+                hp.type = 'highpass'; hp.frequency.value = 2000;
+                var ng = audioCtx.createGain();
+                ng.gain.setValueAtTime(0.5, t);
+                ng.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+                noise.connect(hp); hp.connect(ng); ng.connect(master);
+                noise.start(t);
+
+                // 余韵泛音
+                var o2 = audioCtx.createOscillator();
+                var g2 = audioCtx.createGain();
+                o2.type = 'sine';
+                o2.frequency.setValueAtTime(880, t);
+                g2.gain.setValueAtTime(0.12, t);
+                g2.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+                o2.connect(g2); g2.connect(master);
+                o2.start(t); o2.stop(t + 0.15);
+            } catch (e) {}
+        }
+
+        function knock(e) {
+            var now = Date.now();
+            combo = now - lastKnock < 800 ? combo + 1 : 1;
+            lastKnock = now;
+            merit++;
+            saveState();
+            renderMerit();
+            knockSound();
+
+            var fish = $('fish');
+            fish.classList.remove('knocked');
+            void fish.offsetWidth; // 重启动画
+            fish.classList.add('knocked');
+            setTimeout(function () { fish.classList.remove('knocked'); }, 60);
+
+            var stage = $('stage');
+            var rect = stage.getBoundingClientRect();
+            var x = e && e.clientX ? e.clientX - rect.left : rect.width / 2;
+            var y = e && e.clientY ? e.clientY - rect.top : rect.height / 2;
+            var el = document.createElement('div');
+            el.className = 'float-plus';
+            el.textContent = combo > 2 ? '功德 +1 ×' + combo : '功德 +1';
+            el.style.left = x + 'px';
+            el.style.top = y + 'px';
+            stage.appendChild(el);
+            setTimeout(function () { el.remove(); }, 900);
+
+            var cb = $('combo');
+            if (combo >= 5) {
+                cb.textContent = combo + ' 连击！';
+                cb.classList.add('show');
+            } else cb.classList.remove('show');
+
+            if (merit % 100 === 0) {
+                $('verse').textContent = VERSES[Math.floor(merit / 100) % VERSES.length];
+            }
+        }
+
+        function renderMerit() {
+            $('merit').textContent = formatMerit(merit);
+        }
+
+        function toggleAuto() {
+            if (autoTimer) {
+                clearInterval(autoTimer);
+                autoTimer = null;
+                $('autoBtn').textContent = '自动念经';
+            } else {
+                autoTimer = setInterval(function () { knock(); }, 1000);
+                $('autoBtn').textContent = '停止念经';
+                knock();
+            }
+        }
+
+        function toggleMute() {
+            muted = !muted;
+            $('muteBtn').textContent = muted ? '取消静音' : '静音';
+        }
+
+        function resetMerit() {
+            merit = 0; combo = 0;
+            saveState();
+            renderMerit();
+            $('combo').classList.remove('show');
+            $('verse').textContent = VERSES[0];
+            showToast('功德已清零，从头再来');
+        }
+
+        if (typeof document.addEventListener === 'function') document.addEventListener('keydown', function (e) {
+            if (e.code === 'Space' && !e.repeat && !/INPUT|TEXTAREA/.test(document.activeElement && document.activeElement.tagName || '')) {
+                e.preventDefault();
+                knock();
+            }
+        });
+
+        loadState();
+        renderMerit();
+    </script>
+</body>
+</html>

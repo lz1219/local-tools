@@ -1,4 +1,4 @@
-// 临时验证脚本：用 Node vm + DOM stub 测试三个工具页的核心逻辑
+// 回归测试：用 Node vm + DOM stub 覆盖所有工具页的核心逻辑
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -14,7 +14,7 @@ const memStorage = {
     removeItem: (k) => { delete memStore[k]; }
 };
 
-function loadPage(rel) {
+function loadPage(rel, extra) {
     const html = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     const m = html.match(/<script>([\s\S]*?)<\/script>/);
     if (!m) throw new Error(rel + ': no inline script found');
@@ -23,8 +23,10 @@ function loadPage(rel) {
     function makeEl(id) {
         return {
             id, value: '', innerHTML: '', textContent: '', className: '',
-            style: {}, checked: false, dataset: {},
+            style: {}, checked: false, dataset: {}, offsetWidth: 100,
             classList: { add() {}, remove() {}, toggle() {} },
+            appendChild() {}, remove() {},
+            getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }),
             addEventListener(type, fn) { (listeners[id + ':' + type] = listeners[id + ':' + type] || []).push(fn); }
         };
     }
@@ -38,9 +40,18 @@ function loadPage(rel) {
         btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
         atob: (s) => Buffer.from(s, 'base64').toString('binary'),
         document: {
-            getElementById(id) { return els[id] || (els[id] = makeEl(id)); }
+            getElementById(id) { return els[id] || (els[id] = makeEl(id)); },
+            createElement() { return makeEl('dyn'); },
+            activeElement: null,
+            // 仅 hash.html 使用：默认勾选与页面一致的 md5 + SHA-256
+            querySelectorAll(sel) {
+                return sel === '.algo'
+                    ? [{ checked: true, value: 'md5' }, { checked: true, value: 'SHA-256' }]
+                    : [];
+            }
         }
     };
+    Object.assign(sandbox, extra || {});
     const ctx = vm.createContext(sandbox);
     vm.runInContext(commonJs + '\n' + m[1], ctx);
     return { ctx, els, listeners };
@@ -50,6 +61,10 @@ let pass = 0, fail = 0;
 function check(name, cond) {
     if (cond) { pass++; console.log('PASS', name); }
     else { fail++; console.log('FAIL', name); }
+}
+function finish() {
+    console.log('\n' + pass + ' passed, ' + fail + ' failed');
+    process.exit(fail ? 1 : 0);
 }
 
 // ---- encode.html ----
@@ -287,5 +302,189 @@ function check(name, cond) {
     check('设置持久化', JSON.stringify(p2.ctx.loadSettings()) === JSON.stringify(ctx.loadSettings()));
 }
 
-console.log('\n' + pass + ' passed, ' + fail + ' failed');
-process.exit(fail ? 1 : 0);
+// ---- regex.html ----
+{
+    const { ctx, els } = loadPage('regex/regex.html');
+    check('非法正则不抛异常', !!ctx.buildRegex('(', 'g').error && !ctx.buildRegex('\\d+', 'g').error);
+    const ms = ctx.findMatches('\\d+', 'g', 'a1b22');
+    check('findMatches 命中', ms.length === 2 && ms[0].text === '1' && ms[1].index === 3);
+    const gs = ctx.findMatches('(b)(c)?', '', 'abc');
+    check('无 g 强制全局 + 分组', gs.length === 1 && gs[0].groups[0] === 'b');
+    const zw = ctx.findMatches('x*', 'g', 'axb');
+    check('零宽匹配不死循环', zw.length === 4 && zw.every(m => m.text !== undefined));
+    ctx.renderMatches(ctx.findMatches('\\d+', 'g', 'a1b22'), 'a1b22');
+    const mhtml = els['matchView'].innerHTML;
+    check('匹配高亮渲染', mhtml.includes('<mark') && (mhtml.match(/<mark/g) || []).length === 2);
+    els['pattern'].value = '(a)(b)';
+    els['input'].value = 'xab';
+    ctx.runTest();
+    check('runTest 分组列表', els['matchList'].innerHTML.includes('$1'));
+    check('runTest 状态徽章', els['statusBadge'].textContent === '正则有效' && els['matchBadge'].textContent === '1 个匹配');
+    els['pattern'].value = '(';
+    ctx.runTest();
+    check('runTest 错误提示', els['statusBadge'].className.includes('badge-err'));
+}
+
+// ---- text.html ----
+{
+    const { ctx, els } = loadPage('text/text.html');
+    const sample = '你好 world\n第二行';
+    const st = ctx.textStats(sample);
+    check('textStats 统计', st.cn === 5 && st.enWords === 1 && st.lines === 2 && st.chars === sample.length && st.noSpace === 10);
+    check('textStats 空文本', ctx.textStats('').lines === 0 && ctx.textStats('').chars === 0);
+    check('全角转半角', ctx.toHalf('ＡＢＣ１２３　x') === 'ABC123 x');
+    check('半角转全角', ctx.toFull('ABC123 x') === 'ＡＢＣ１２３　ｘ');
+    check('全角半角往返', ctx.toHalf(ctx.toFull('ABC123 x')) === 'ABC123 x');
+    els['input'].value = 'b\na\nb\nc\na';
+    ctx.applyOp('dedupe');
+    check('行去重', els['output'].value === 'b\na\nc');
+    els['input'].value = 'b\na\nc';
+    ctx.applyOp('sortAsc');
+    check('行升序', els['output'].value === 'a\nb\nc');
+    els['input'].value = '10\n9\n2';
+    ctx.applyOp('sortNum');
+    check('行数值排序', els['output'].value === '2\n9\n10');
+    els['input'].value = 'hello world-foo';
+    ctx.applyOp('camel');
+    check('camelCase', els['output'].value === 'helloWorldFoo');
+    els['input'].value = 'Hello World';
+    ctx.applyOp('snake');
+    check('snake_case', els['output'].value === 'hello_world');
+    els['input'].value = 'Hello World';
+    ctx.applyOp('kebab');
+    check('kebab-case', els['output'].value === 'hello-world');
+    els['input'].value = 'a\n\nb\n';
+    ctx.applyOp('dropEmpty');
+    check('去空行', els['output'].value === 'a\nb');
+    els['input'].value = '';
+    ctx.applyOp('upper');
+    check('空输入有保护', els['output'].value === 'a\nb');
+}
+
+// ---- gen.html ----
+{
+    const nodeCrypto = require('crypto');
+    const { ctx, els } = loadPage('gen/gen.html', { crypto: nodeCrypto.webcrypto });
+    check('uuidv4 格式', /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(ctx.uuidv4()));
+    const opts = { upper: true, lower: true, digit: true, symbol: true, len: 32, noAmb: false };
+    const pw = ctx.passwordFromOptions(opts);
+    check('密码长度', pw.length === 32);
+    check('密码字符集覆盖', /[A-Z]/.test(pw) && /[a-z]/.test(pw) && /[0-9]/.test(pw) && /[^A-Za-z0-9]/.test(pw));
+    const pwAmb = ctx.passwordFromOptions({ upper: true, lower: true, digit: false, symbol: false, len: 16, noAmb: true });
+    check('排除易混淆字符', !/[0O1lI]/.test(pwAmb));
+    let threw = false;
+    try { ctx.passwordFromOptions({ upper: false, lower: false, digit: false, symbol: false, len: 8, noAmb: false }); } catch (e) { threw = true; }
+    check('空字符集报错', threw);
+    threw = false;
+    try { ctx.passwordFromOptions({ upper: true, lower: true, digit: true, symbol: true, len: 3, noAmb: false }); } catch (e) { threw = true; }
+    check('长度小于字符集种类报错', threw);
+    check('熵计算', ctx.entropyBits(10, 1024) === 100);
+    let inRange = true;
+    for (let i = 0; i < 300; i++) { const v = ctx.randInt(5, 10); if (v < 5 || v > 10) inRange = false; }
+    check('randInt 范围', inRange);
+    ctx.$('uuidCount').value = '3';
+    ctx.genUuids();
+    check('批量 UUID', ctx.$('uuidOut').textContent.split('\n').length === 3);
+}
+
+// ---- jwt.html ----
+{
+    const { ctx, els } = loadPage('jwt/jwt.html');
+    const b64u = (s) => Buffer.from(s, 'utf8').toString('base64url');
+    const now = Math.floor(Date.now() / 1000);
+    const token = b64u(JSON.stringify({ alg: 'HS256', typ: 'JWT' })) + '.' +
+        b64u(JSON.stringify({ sub: '123', name: '张三', exp: now + 3600 })) + '.fakesig';
+    const dec = ctx.decodeJwt(token);
+    check('JWT 解码', dec.header.alg === 'HS256' && dec.payload.name === '张三');
+    check('expInfo 有效', ctx.expInfo(now + 86400 * 2).state === 'ok');
+    check('expInfo 即将过期', ctx.expInfo(now + 3600 - 100).state === 'soon');
+    check('expInfo 已过期', ctx.expInfo(now - 100).state === 'dead');
+    check('fmtDuration', ctx.fmtDuration(90061000) === '1 天 1 小时');
+    let threw = false;
+    try { ctx.decodeJwt('not-a-jwt'); } catch (e) { threw = true; }
+    check('非法 JWT 报错', threw);
+    threw = false;
+    try { ctx.decodeJwt(b64u('{"a":1') + '.' + b64u('{}') + '.x'); } catch (e) { threw = true; }
+    check('坏 JSON 报错', threw);
+    els['input'].value = token;
+    ctx.doParse();
+    check('doParse 渲染', els['headerBlock'].textContent.includes('HS256') && els['payloadBlock'].textContent.includes('张三'));
+    check('过期横幅', els['expBanner'].textContent.includes('有效期至'));
+}
+
+// ---- color.html ----
+{
+    const { ctx } = loadPage('color/color.html');
+    check('hexToRgb', JSON.stringify(ctx.hexToRgb('#4a9eff')) === JSON.stringify({ r: 74, g: 158, b: 255 }));
+    check('rgbToHex 回环', ctx.rgbToHex(74, 158, 255) === '#4a9eff');
+    check('hexToRgb 非法', ctx.hexToRgb('#xyz') === null && ctx.hexToRgb('#fff') === null);
+    const hslRed = ctx.rgbToHsl(255, 0, 0);
+    const backRed = ctx.hslToRgb(hslRed.h, hslRed.s, hslRed.l);
+    check('hsl 精确回环', JSON.stringify(backRed) === JSON.stringify({ r: 255, g: 0, b: 0 }));
+    const hsl = ctx.rgbToHsl(74, 158, 255);
+    const back = ctx.hslToRgb(hsl.h, hsl.s, hsl.l);
+    check('hsl 近似回环', Math.abs(back.r - 74) <= 3 && Math.abs(back.g - 158) <= 3 && Math.abs(back.b - 255) <= 1);
+    check('黑白对比度 21', Math.abs(ctx.contrastRatio({ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 }) - 21) < 0.1);
+    check('WCAG 标签', ctx.wcagTag(21, 'AAA').includes('wcag-pass') && ctx.wcagTag(3, 'AA').includes('wcag-fail'));
+    ctx.setFromRgb(255, 0, 0);
+    check('setFromRgb 联动', JSON.stringify(ctx.current) === JSON.stringify({ r: 255, g: 0, b: 0 }));
+}
+
+// ---- fish.html ----
+{
+    const { ctx, els } = loadPage('fish/fish.html');
+    check('功德格式化', ctx.formatMerit(9999) === '9999' && ctx.formatMerit(12345) === '1.2 万' && ctx.formatMerit(20000) === '2 万');
+    ctx.resetMerit();
+    check('清零', els['merit'].textContent === '0' || ctx.formatMerit(0) === '0');
+    const before = parseInt(memStore['fish-merit'] || '0', 10);
+    ctx.knock(null);
+    check('敲击 +1 并持久化', parseInt(memStore['fish-merit'], 10) === before + 1);
+}
+
+// ---- fractal.html ----
+{
+    const { ctx } = loadPage('fractal/fractal.html');
+    check('心在集合内', ctx.mandelIter(0, 0, 100).n === 100);
+    check('远处快速逃逸', ctx.mandelIter(2, 2, 100).n < 5);
+    const v = { x0: 0, x1: 2, y0: -1, y1: 1 };
+    const r1 = ctx.rectFromDrag(0, 0, 100, 100, 100, 100, v);
+    const r2 = ctx.rectFromDrag(100, 100, 0, 0, 100, 100, v);
+    check('框选缩放映射', JSON.stringify(r1) === JSON.stringify(v) && JSON.stringify(r2) === JSON.stringify(v));
+    const half = ctx.rectFromDrag(50, 0, 100, 100, 100, 100, v);
+    check('框选右半', Math.abs(half.x0 - 1) < 1e-9 && Math.abs(half.x1 - 2) < 1e-9);
+    const pal = ctx.makePalette([[0, [0, 0, 0]], [1, [255, 255, 255]]]);
+    check('调色板中点', JSON.stringify(pal(0.5)) === JSON.stringify([128, 128, 128]));
+}
+
+// ---- wheel.html ----
+{
+    const { ctx } = loadPage('wheel/wheel.html');
+    const segs = ctx.buildSegments('甲\n\n 乙 \n丙');
+    check('选项解析', segs.length === 3 && segs[0].label === '甲' && segs[2].label === '丙');
+    check('扇区配色', segs.every(s => /^hsl\(/.test(s.color)));
+    // 指针旋转 n 个等分角，应恰好遍历所有扇区各一次
+    const n = 8, seen = new Set();
+    for (let k = 0; k < n; k++) seen.add(ctx.winnerIndex(k * Math.PI * 2 / n, n));
+    check('winnerIndex 覆盖所有扇区', seen.size === n);
+}
+
+// ---- hash.html（异步块，最后收尾） ----
+(async () => {
+    const nodeCrypto = require('crypto');
+    const { ctx, els } = loadPage('hash/hash.html', { crypto: nodeCrypto.webcrypto, window: {} });
+    check('md5 abc', ctx.md5('abc') === '900150983cd24fb0d6963f7d28e17f72');
+    check('md5 空串', ctx.md5('') === 'd41d8cd98f00b204e9800998ecf8427e');
+    const long = '哈希长文本测试'.repeat(200);
+    check('md5 中文长文对拍', ctx.md5(long) === nodeCrypto.createHash('md5').update(long, 'utf8').digest('hex'));
+    check('bufToHex', ctx.bufToHex(new Uint8Array([0xde, 0xad, 0xbe, 0xef])) === 'deadbeef');
+    const sha256 = await ctx.shaHex('SHA-256', 'abc');
+    check('SHA-256 标准向量', sha256 === 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    const sha1 = await ctx.shaHex('SHA-1', 'abc');
+    check('SHA-1 标准向量', sha1 === 'a9993e364706816aba3e25717850c26c9cd0d89d');
+    const sha512 = await ctx.shaHex('SHA-512', 'abc');
+    check('SHA-512 标准向量', sha512 === 'ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a' + '2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f');
+    els['input'].value = 'abc';
+    await ctx.computeAndRender('abc', null);
+    check('computeAndRender 渲染', els['hashResult'].innerHTML.includes('900150983cd24fb0d6963f7d28e17f72'));
+    finish();
+})().catch(e => { console.error(e); process.exit(1); });

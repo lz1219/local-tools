@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>幸运大转盘</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .wheel-layout { display: flex; gap: 24px; align-items: flex-start; }
+        .wheel-stage { position: relative; flex-shrink: 0; }
+        #wheelCanvas { display: block; }
+        .pointer {
+            position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+            width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent;
+            border-top: 22px solid #e53935; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3));
+        }
+        .hub {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 64px; height: 64px; border-radius: 50%;
+            background: #fff; border: 4px solid #e53935;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; color: #e53935; font-size: 13px; user-select: none;
+        }
+        .result-banner {
+            margin-top: 16px; text-align: center; font-size: 22px; font-weight: 700;
+            color: #2c3e50; min-height: 32px;
+        }
+        .side-panel { flex: 1; min-width: 260px; }
+        .side-panel textarea {
+            width: 100%; height: 220px; background: #fafbfc;
+            border: 1px solid #dde1e6; border-radius: 8px; color: #333;
+            font-family: Consolas, monospace; font-size: 13px; padding: 12px; resize: vertical;
+        }
+        .side-panel textarea:focus { outline: none; border-color: #4a9eff; }
+        .opt-row { display: flex; gap: 12px; align-items: center; margin: 12px 0; font-size: 13px; color: #666; flex-wrap: wrap; }
+        .opt-row label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
+        .opt-row input[type="checkbox"] { accent-color: #4a9eff; }
+        @media (max-width: 860px) { .wheel-layout { flex-direction: column; align-items: center; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>幸运大转盘</h1>
+        <p class="subtitle">去哪吃饭 · 谁来做 · 抽人回答 · 一键决策</p>
+
+        <div class="panel wheel-layout">
+            <div class="wheel-stage">
+                <canvas id="wheelCanvas" width="380" height="380"></canvas>
+                <div class="pointer"></div>
+                <div class="hub">GO</div>
+            </div>
+            <div class="side-panel">
+                <div class="panel-header" style="margin-bottom:8px;"><h3>选项（每行一个）</h3></div>
+                <textarea id="options" placeholder="火锅&#10;烧烤&#10;麻辣烫&#10;轻食&#10;随便">火锅
+烧烤
+麻辣烫
+轻食
+沙县小吃</textarea>
+                <div class="opt-row">
+                    <label><input type="checkbox" id="removeWinner">抽中后移除该选项</label>
+                    <button class="btn-outline btn-sm" onclick="shuffleOptions()">乱序选项</button>
+                </div>
+                <button class="btn-primary" id="spinBtn" onclick="spin()">开始转动</button>
+                <div class="result-banner" id="result"></div>
+            </div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        var canvas, ctx;
+        var rotation = 0;           // 当前角度（弧度）
+        var spinning = false;
+        var segments = [];
+        var audioCtx = null;
+
+        function buildSegments(text) {
+            var lines = text.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+            return lines.map(function (label, i) {
+                return {
+                    label: label,
+                    color: 'hsl(' + ((i * 67) % 360) + ', 72%, ' + (i % 2 ? 62 : 55) + '%)'
+                };
+            });
+        }
+
+        // 指针固定在正上方（-90°），返回该处扇区下标
+        function winnerIndex(rot, n) {
+            var seg = Math.PI * 2 / n;
+            var a = ((-Math.PI / 2 - rot) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+            return Math.floor(a / seg) % n;
+        }
+
+        function draw() {
+            var w = canvas.width, h = canvas.height;
+            var cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 6;
+            ctx.clearRect(0, 0, w, h);
+            var n = segments.length;
+            if (!n) {
+                ctx.fillStyle = '#999';
+                ctx.font = '14px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('请先填写选项', cx, cy);
+                return;
+            }
+            var seg = Math.PI * 2 / n;
+            for (var i = 0; i < n; i++) {
+                var a0 = rotation + i * seg, a1 = a0 + seg;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.arc(cx, cy, R, a0, a1);
+                ctx.closePath();
+                ctx.fillStyle = segments[i].color;
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // 标签
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(a0 + seg / 2);
+                ctx.textAlign = 'right';
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 15px "Microsoft YaHei", sans-serif';
+                ctx.shadowColor = 'rgba(0,0,0,0.35)';
+                ctx.shadowBlur = 3;
+                var label = segments[i].label;
+                if (label.length > 8) label = label.slice(0, 8) + '…';
+                ctx.fillText(label, R - 14, 5);
+                ctx.restore();
+            }
+            ctx.beginPath();
+            ctx.arc(cx, cy, R, 0, Math.PI * 2);
+            ctx.strokeStyle = '#c9ced4';
+            ctx.lineWidth = 6;
+            ctx.stroke();
+        }
+
+        function tickSound() {
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                var t = audioCtx.currentTime;
+                var o = audioCtx.createOscillator();
+                var g = audioCtx.createGain();
+                o.type = 'square';
+                o.frequency.value = 1400;
+                g.gain.setValueAtTime(0.08, t);
+                g.gain.exponentialRampToValueAtTime(0.001, t + 0.03);
+                o.connect(g); g.connect(audioCtx.destination);
+                o.start(t); o.stop(t + 0.04);
+            } catch (e) {}
+        }
+
+        function fanfare() {
+            try {
+                if (!audioCtx) return;
+                var t = audioCtx.currentTime;
+                [523, 659, 784].forEach(function (f, i) {
+                    var o = audioCtx.createOscillator();
+                    var g = audioCtx.createGain();
+                    o.type = 'sine';
+                    o.frequency.value = f;
+                    g.gain.setValueAtTime(0.0001, t + i * 0.09);
+                    g.gain.exponentialRampToValueAtTime(0.25, t + i * 0.09 + 0.02);
+                    g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.09 + 0.35);
+                    o.connect(g); g.connect(audioCtx.destination);
+                    o.start(t + i * 0.09); o.stop(t + i * 0.09 + 0.4);
+                });
+            } catch (e) {}
+        }
+
+        function spin() {
+            if (spinning) return;
+            segments = buildSegments($('options').value);
+            if (segments.length < 2) { showToast('至少需要 2 个选项'); return; }
+            spinning = true;
+            $('spinBtn').disabled = true;
+            $('result').textContent = '';
+            draw();
+
+            var n = segments.length;
+            var seg = Math.PI * 2 / n;
+            var targetWinner = Math.floor(Math.random() * n);
+            // 让目标扇区停在指针下：rotation = -PI/2 - (targetWinner + 0.5) * seg + k*2PI
+            var base = -Math.PI / 2 - (targetWinner + 0.5) * seg;
+            var turns = 6 + Math.floor(Math.random() * 3);
+            var target = base + turns * Math.PI * 2;
+            while (target <= rotation) target += Math.PI * 2;
+
+            var start = rotation, total = target - rotation;
+            var DURATION = 4200;
+            var t0 = performance.now();
+            var lastTickSeg = winnerIndex(rotation, n);
+
+            function frame(now) {
+                var p = Math.min(1, (now - t0) / DURATION);
+                var eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
+                rotation = start + total * eased;
+                var cur = winnerIndex(rotation, n);
+                if (cur !== lastTickSeg) { tickSound(); lastTickSeg = cur; }
+                draw();
+                if (p < 1) requestAnimationFrame(frame);
+                else finish(targetWinner);
+            }
+            requestAnimationFrame(frame);
+        }
+
+        function finish(idx) {
+            spinning = false;
+            $('spinBtn').disabled = false;
+            var label = segments[idx].label;
+            $('result').textContent = '🎉 ' + label;
+            fanfare();
+
+            if ($('removeWinner').checked && segments.length > 2) {
+                var lines = $('options').value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+                lines.splice(idx, 1);
+                $('options').value = lines.join('\n');
+                segments = buildSegments($('options').value);
+                setTimeout(draw, 800);
+            }
+        }
+
+        function shuffleOptions() {
+            var lines = $('options').value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+            for (var i = lines.length - 1; i > 0; i--) {
+                var j = Math.floor(Math.random() * (i + 1));
+                var t = lines[i]; lines[i] = lines[j]; lines[j] = t;
+            }
+            $('options').value = lines.join('\n');
+            segments = buildSegments($('options').value);
+            draw();
+        }
+
+        function init() {
+            canvas = $('wheelCanvas');
+            ctx = canvas.getContext('2d');
+            $('options').addEventListener('input', function () {
+                segments = buildSegments(this.value);
+                draw();
+            });
+            segments = buildSegments($('options').value);
+            draw();
+        }
+
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener('load', init);
+        }
+    </script>
+</body>
+</html>

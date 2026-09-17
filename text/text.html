@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文本工具箱</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .stats-bar {
+            display: flex; gap: 18px; flex-wrap: wrap;
+            font-size: 13px; color: #666;
+        }
+        .stats-bar b { color: #2c3e50; font-family: Consolas, monospace; }
+        .ops-group { margin-bottom: 14px; }
+        .ops-group .group-title { font-size: 12px; color: #999; margin-bottom: 6px; }
+        .ops-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        .editors { display: flex; gap: 16px; }
+        .editors .panel { flex: 1; min-width: 0; margin-bottom: 0; }
+        .editors .editor-wrap { height: 260px; }
+        @media (max-width: 860px) { .editors { flex-direction: column; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>文本工具箱</h1>
+        <p class="subtitle">字数统计 · 大小写 · 全半角 · 行处理</p>
+
+        <div class="panel">
+            <div class="panel-header"><h3>实时统计</h3></div>
+            <div class="stats-bar" id="statsBar">输入文本后自动统计</div>
+        </div>
+
+        <div class="panel">
+            <div class="ops-group">
+                <div class="group-title">大小写</div>
+                <div class="ops-row">
+                    <button class="btn-outline btn-sm" onclick="applyOp('upper')">全大写</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('lower')">全小写</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('capitalize')">单词首字母大写</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('camel')">驼峰 camelCase</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('snake')">下划线 snake_case</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('kebab')">连字符 kebab-case</button>
+                </div>
+            </div>
+            <div class="ops-group">
+                <div class="group-title">全半角</div>
+                <div class="ops-row">
+                    <button class="btn-outline btn-sm" onclick="applyOp('half')">全角 → 半角</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('full')">半角 → 全角</button>
+                </div>
+            </div>
+            <div class="ops-group" style="margin-bottom:0;">
+                <div class="group-title">行处理</div>
+                <div class="ops-row">
+                    <button class="btn-outline btn-sm" onclick="applyOp('dedupe')">去重（保序）</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('sortAsc')">排序 ↑</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('sortDesc')">排序 ↓</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('sortNum')">数值排序</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('trim')">行首尾去空白</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('dropEmpty')">删除空行</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('reverse')">反转行序</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('shuffle')">行乱序</button>
+                    <button class="btn-outline btn-sm" onclick="applyOp('number')">加行号</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="editors">
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>输入</h3>
+                    <span class="badge badge-info" id="sizeBadge"></span>
+                </div>
+                <div class="editor-wrap">
+                    <div class="line-numbers" id="inputLines"><div>1</div></div>
+                    <textarea id="input" placeholder="粘贴文本..."></textarea>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>输出</h3>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button class="btn-outline btn-sm" onclick="sendBack()">送回输入</button>
+                        <button class="btn-success btn-sm" onclick="copyOutput()">复制</button>
+                    </div>
+                </div>
+                <div class="editor-wrap">
+                    <div class="line-numbers" id="outputLines"><div>1</div></div>
+                    <textarea id="output" readonly placeholder="操作结果将显示在这里..."></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        // ---- 统计 ----
+        function textStats(text) {
+            var noSpace = text.replace(/\s/g, '');
+            var cn = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+            var enWords = (text.match(/[A-Za-z0-9_'-]+/g) || []).length;
+            var lines = text ? text.split('\n').length : 0;
+            return {
+                chars: text.length,
+                noSpace: noSpace.length,
+                cn: cn,
+                enWords: enWords,
+                lines: lines
+            };
+        }
+
+        // ---- 大小写 ----
+        function toHalf(s) {
+            return s.replace(/[\uFF01-\uFF5E]/g, function (c) {
+                return String.fromCharCode(c.charCodeAt(0) - 0xFEE0);
+            }).replace(/\u3000/g, ' ');
+        }
+        function toFull(s) {
+            return s.replace(/[!-~]/g, function (c) {
+                return String.fromCharCode(c.charCodeAt(0) + 0xFEE0);
+            }).replace(/ /g, '\u3000');
+        }
+
+        function words(text) {
+            return text.split(/[^A-Za-z0-9]+/).filter(Boolean);
+        }
+
+        // ---- 行处理 ----
+        function lines(text) { return text.split('\n'); }
+
+        function applyOp(op) {
+            var text = $('input').value;
+            if (!text) { showToast('请输入内容'); return; }
+            var out = '';
+            switch (op) {
+                case 'upper': out = text.toUpperCase(); break;
+                case 'lower': out = text.toLowerCase(); break;
+                case 'capitalize': out = text.replace(/(^|\s|[\n\r])([a-z])/g, function (m, p, c) { return p + c.toUpperCase(); }); break;
+                case 'camel': out = words(text).map(function (w, i) {
+                    var lw = w.toLowerCase();
+                    return i === 0 ? lw : lw.charAt(0).toUpperCase() + lw.slice(1);
+                }).join(''); break;
+                case 'snake': out = words(text).map(function (w) { return w.toLowerCase(); }).join('_'); break;
+                case 'kebab': out = words(text).map(function (w) { return w.toLowerCase(); }).join('-'); break;
+                case 'half': out = toHalf(text); break;
+                case 'full': out = toFull(text); break;
+                case 'dedupe': {
+                    var seen = {};
+                    out = lines(text).filter(function (l) {
+                        if (seen[l]) return false;
+                        seen[l] = true;
+                        return true;
+                    }).join('\n');
+                    break;
+                }
+                case 'sortAsc': out = lines(text).sort(function (a, b) { return a.localeCompare(b, 'zh'); }); break;
+                case 'sortDesc': out = lines(text).sort(function (a, b) { return b.localeCompare(a, 'zh'); }); break;
+                case 'sortNum': out = lines(text).sort(function (a, b) { return parseFloat(a) - parseFloat(b); }); break;
+                case 'trim': out = lines(text).map(function (l) { return l.trim(); }).join('\n'); break;
+                case 'dropEmpty': out = lines(text).filter(function (l) { return l.trim() !== ''; }).join('\n'); break;
+                case 'reverse': out = lines(text).reverse().join('\n'); break;
+                case 'shuffle': out = lines(text).sort(function () { return Math.random() - 0.5; }).join('\n'); break;
+                case 'number': out = lines(text).map(function (l, i) { return (i + 1) + '. ' + l; }).join('\n'); break;
+            }
+            if (Array.isArray(out)) out = out.join('\n');
+            $('output').value = out;
+            updateLineNumbers($('output'), $('outputLines'));
+        }
+
+        function updateStats() {
+            var s = textStats($('input').value);
+            $('statsBar').innerHTML = $('input').value
+                ? '字符 <b>' + s.chars + '</b> · 不含空白 <b>' + s.noSpace + '</b> · 中文 <b>' + s.cn + '</b> · 英文单词 <b>' + s.enWords + '</b> · 行数 <b>' + s.lines + '</b>'
+                : '输入文本后自动统计';
+        }
+
+        function sendBack() {
+            var t = $('output').value;
+            if (!t) { showToast('没有内容'); return; }
+            $('input').value = t;
+            updateLineNumbers($('input'), $('inputLines'));
+            updateStats();
+            updateSize('input', 'sizeBadge');
+            showToast('已送回输入区');
+        }
+
+        function copyOutput() {
+            var t = $('output').value;
+            if (!t) { showToast('没有可复制的内容'); return; }
+            navigator.clipboard.writeText(t).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        $('input').addEventListener('input', updateStats);
+        bindEditor('input', 'inputLines', 'sizeBadge');
+        bindEditor('output', 'outputLines');
+    </script>
+</body>
+</html>

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>正则表达式测试工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .regex-input {
+            width: 100%; padding: 10px 14px; border: 1px solid #dde1e6; border-radius: 8px;
+            background: #fafbfc; color: #c62828;
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 15px;
+        }
+        .regex-input:focus { outline: none; border-color: #4a9eff; box-shadow: 0 0 0 2px rgba(74,158,255,0.15); }
+        .flags-row { display: flex; gap: 14px; align-items: center; margin-top: 10px; font-size: 13px; color: #666; flex-wrap: wrap; }
+        .flags-row label { display: flex; gap: 5px; align-items: center; cursor: pointer; }
+        .flags-row input[type="checkbox"] { accent-color: #4a9eff; }
+        .flags-row code { color: #1565c0; }
+        .match-view {
+            border: 1px solid #dde1e6; border-radius: 8px; background: #fafbfc;
+            padding: 14px; min-height: 120px; max-height: 240px; overflow: auto;
+            font-family: 'Consolas', monospace; font-size: 13px; line-height: 1.7;
+            white-space: pre-wrap; word-break: break-all;
+        }
+        .match-view mark { background: #ffe082; border-radius: 3px; padding: 0 1px; }
+        .match-view mark.g0 { background: #ffe082; }
+        .match-view mark.grp { background: #b3e5fc; }
+        .match-list { margin-top: 12px; }
+        .match-item {
+            display: flex; gap: 10px; padding: 6px 10px; border-bottom: 1px solid #f0f2f5;
+            font-family: 'Consolas', monospace; font-size: 12px; align-items: baseline;
+        }
+        .match-item .idx { color: #999; flex-shrink: 0; }
+        .match-item .text { color: #c62828; word-break: break-all; }
+        .match-item .groups { color: #1565c0; word-break: break-all; }
+        .match-item .pos { color: #aaa; flex-shrink: 0; margin-left: auto; }
+        .rp-input {
+            flex: 1; padding: 9px 12px; border: 1px solid #dde1e6; border-radius: 6px;
+            background: #fafbfc; font-family: 'Consolas', monospace; font-size: 13px; color: #2e7d32;
+        }
+        .rp-input:focus { outline: none; border-color: #4a9eff; }
+        details.cheatsheet { font-size: 13px; }
+        details.cheatsheet summary { cursor: pointer; color: #1565c0; font-weight: 600; margin-bottom: 8px; }
+        .cheat-table { width: 100%; border-collapse: collapse; }
+        .cheat-table td { padding: 5px 10px; border-bottom: 1px solid #f0f2f5; }
+        .cheat-table td:first-child { font-family: Consolas, monospace; color: #c62828; white-space: nowrap; }
+        .cheat-table td:last-child { color: #888; }
+        .cheat-table tr:hover td { background: #f5f9ff; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>正则表达式测试工具</h1>
+        <p class="subtitle">实时匹配高亮 · 分组捕获 · 替换预览 · 全程本地执行</p>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>正则表达式</h3>
+                <span class="badge" id="statusBadge"></span>
+            </div>
+            <input type="text" class="regex-input" id="pattern" placeholder="输入正则，如 \b\w+@\w+\.\w+\b">
+            <div class="flags-row">
+                <span>标志:</span>
+                <label><input type="checkbox" id="flagG" checked><code>g</code> 全局</label>
+                <label><input type="checkbox" id="flagI"><code>i</code> 忽略大小写</label>
+                <label><input type="checkbox" id="flagM"><code>m</code> 多行</label>
+                <label><input type="checkbox" id="flagS"><code>s</code> 点号跨行</label>
+                <label><input type="checkbox" id="flagU"><code>u</code> Unicode</label>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>测试文本</h3>
+                <span class="badge badge-info" id="sizeBadge"></span>
+            </div>
+            <div class="editor-wrap" style="height:160px;">
+                <div class="line-numbers" id="inputLines"><div>1</div></div>
+                <textarea id="input" placeholder="粘贴要测试的文本..."></textarea>
+            </div>
+        </div>
+
+        <div class="panel" id="resultPanel" style="display:none;">
+            <div class="panel-header">
+                <h3>匹配结果</h3>
+                <span class="badge badge-ok" id="matchBadge"></span>
+            </div>
+            <div class="match-view" id="matchView"></div>
+            <div class="match-list" id="matchList"></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>替换预览</h3></div>
+            <div style="display:flex; gap:10px; margin-bottom:10px;">
+                <input type="text" class="rp-input" id="replacePattern" placeholder="替换为（支持 $1 $& 等引用）">
+                <button class="btn-outline btn-sm" onclick="copyReplace()">复制结果</button>
+            </div>
+            <div class="editor-wrap" style="height:120px;">
+                <div class="line-numbers" id="outputLines"><div>1</div></div>
+                <textarea id="output" readonly placeholder="替换结果将显示在这里..."></textarea>
+            </div>
+        </div>
+
+        <details class="panel cheatsheet">
+            <summary>常用正则速查（点击填入）</summary>
+            <table class="cheat-table" id="cheatTable">
+                <tr data-p="\b\w+@[\w-]+(\.[\w-]+)+\b"><td>\b\w+@[\w-]+(\.[\w-]+)+\b</td><td>电子邮箱</td></tr>
+                <tr data-p="1[3-9]\d{9}"><td>1[3-9]\d{9}</td><td>手机号</td></tr>
+                <tr data-p="\b\d{17}[\dXx]\b"><td>\b\d{17}[\dXx]\b</td><td>身份证号</td></tr>
+                <tr data-p="https?://[^\s]+"><td>https?://[^\s]+</td><td>URL 链接</td></tr>
+                <tr data-p="\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b"><td>\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b</td><td>日期</td></tr>
+                <tr data-p="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$"><td>^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$</td><td>强密码规则</td></tr>
+                <tr data-p="[\u4e00-\u9fa5]+"><td>[\u4e00-\u9fa5]+</td><td>中文字符</td></tr>
+                <tr data-p="^\s*|\s*$"><td>^\s*|\s*$</td><td>行首尾空白（配合 m 标志）</td></tr>
+                <tr data-p="(\w+)\s*=\s*([^;]+)"><td>(\w+)\s*=\s*([^;]+)</td><td>键值对捕获</td></tr>
+                <tr data-p="\b(?:\d{1,3}\.){3}\d{1,3}\b"><td>\b(?:\d{1,3}\.){3}\d{1,3}\b</td><td>IPv4 地址</td></tr>
+            </table>
+        </details>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function getFlags() {
+            return ($('flagG').checked ? 'g' : '') + ($('flagI').checked ? 'i' : '') +
+                ($('flagM').checked ? 'm' : '') + ($('flagS').checked ? 's' : '') + ($('flagU').checked ? 'u' : '');
+        }
+
+        // 返回 {regex, error}；非法正则不抛异常
+        function buildRegex(pattern, flags) {
+            try {
+                return { regex: new RegExp(pattern, flags) };
+            } catch (e) {
+                return { error: e.message };
+            }
+        }
+
+        function findMatches(pattern, flags, text) {
+            var r = buildRegex(pattern, flags.indexOf('g') >= 0 ? flags : flags + 'g');
+            if (r.error) throw new Error(r.error);
+            var matches = [], m, guard = 0;
+            while ((m = r.regex.exec(text)) !== null) {
+                matches.push({ index: m.index, text: m[0], groups: m.slice(1) });
+                if (m[0] === '') r.regex.lastIndex++; // 避免零宽匹配死循环
+                if (++guard > 5000) break;
+            }
+            return matches;
+        }
+
+        function renderMatches(matches, text) {
+            var html = '', pos = 0;
+            matches.forEach(function (m) {
+                html += esc(text.slice(pos, m.index));
+                html += '<mark class="g0">' + esc(m.text) + '</mark>';
+                pos = m.index + m.text.length;
+            });
+            html += esc(text.slice(pos));
+            $('matchView').innerHTML = html || '<span style="color:#bbb">（无匹配）</span>';
+
+            $('matchList').innerHTML = matches.map(function (m, i) {
+                var g = m.groups.map(function (v, j) { return '$' + (j + 1) + '=' + (v === undefined ? '∅' : JSON.stringify(v)); }).join('  ');
+                return '<div class="match-item"><span class="idx">#' + (i + 1) + '</span>' +
+                    '<span class="text">' + esc(JSON.stringify(m.text)) + '</span>' +
+                    (g ? '<span class="groups">' + esc(g) + '</span>' : '') +
+                    '<span class="pos">位置 ' + m.index + '</span></div>';
+            }).join('');
+        }
+
+        function runTest() {
+            var pattern = $('pattern').value;
+            var text = $('input').value;
+            if (!pattern) {
+                $('resultPanel').style.display = 'none';
+                $('statusBadge').textContent = '';
+                $('output').value = '';
+                return;
+            }
+            var r = buildRegex(pattern, getFlags());
+            if (r.error) {
+                $('resultPanel').style.display = 'none';
+                var b = $('statusBadge');
+                b.textContent = '正则无效: ' + r.error;
+                b.className = 'badge badge-err';
+                $('output').value = '';
+                return;
+            }
+            var b = $('statusBadge');
+            b.textContent = '正则有效';
+            b.className = 'badge badge-ok';
+
+            var matches = findMatches(pattern, getFlags(), text);
+            $('resultPanel').style.display = 'block';
+            var mb = $('matchBadge');
+            mb.textContent = matches.length + ' 个匹配';
+            renderMatches(matches, text);
+
+            // 替换预览（不受 g 标志限制，总是全局替换语义）
+            try {
+                var flags = getFlags().replace('g', '') + 'g';
+                var rg = new RegExp(pattern, flags);
+                $('output').value = text.replace(rg, $('replacePattern').value);
+                updateLineNumbers($('output'), $('outputLines'));
+            } catch (e) { $('output').value = ''; }
+        }
+
+        function copyReplace() {
+            var t = $('output').value;
+            if (!t) { showToast('没有可复制的内容'); return; }
+            navigator.clipboard.writeText(t).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        var debTimer = null;
+        function scheduleRun() {
+            clearTimeout(debTimer);
+            debTimer = setTimeout(runTest, 200);
+        }
+
+        ['pattern', 'replacePattern'].forEach(function (id) { $(id).addEventListener('input', scheduleRun); });
+        ['flagG', 'flagI', 'flagM', 'flagS', 'flagU'].forEach(function (id) { $(id).addEventListener('change', runTest); });
+        $('input').addEventListener('input', scheduleRun);
+
+        $('cheatTable').addEventListener('click', function (e) {
+            var tr = e.target.closest && e.target.closest('tr');
+            if (tr && tr.dataset.p) {
+                $('pattern').value = tr.dataset.p;
+                runTest();
+            }
+        });
+
+        bindEditor('input', 'inputLines', 'sizeBadge');
+        bindEditor('output', 'outputLines');
+    </script>
+</body>
+</html>

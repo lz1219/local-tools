@@ -14,6 +14,15 @@
 | 时间戳转换 | [time/time.html](time/time.html) | 时间戳与日期互转，秒/毫秒自动识别 |
 | 图片处理 | [img/img.html](img/img.html) | 本地压缩、缩放、格式转换，支持拖拽与粘贴截图 |
 | Markdown 表格 ↔ CSV | [table/table.html](table/table.html) | Markdown 表格与 CSV/TSV 互转，自动识别方向 |
+| 正则测试器 | [regex/regex.html](regex/regex.html) | 实时匹配高亮、分组捕获、替换预览、正则速查 |
+| 文本工具箱 | [text/text.html](text/text.html) | 字数统计、大小写转换、行处理、全半角互转 |
+| 随机生成器 | [gen/gen.html](gen/gen.html) | UUID v4、随机密码（熵强度提示）、随机数字/端口 |
+| JWT 解析 | [jwt/jwt.html](jwt/jwt.html) | 解码 Header/Payload，过期时间与剩余有效期提醒 |
+| 哈希计算 | [hash/hash.html](hash/hash.html) | MD5 / SHA-1 / SHA-256 / SHA-512，文本与文件 |
+| 颜色工具 | [color/color.html](color/color.html) | HEX/RGB/HSL 互转、配色板、WCAG 对比度检测 |
+| 电子木鱼 | [fish/fish.html](fish/fish.html) | 连击、自动模式、功德持久化的解压小玩具 |
+| 曼德博分形 | [fractal/fractal.html](fractal/fractal.html) | Canvas 渲染，拖拽缩放探索，四种调色板 |
+| 幸运转盘 | [wheel/wheel.html](wheel/wheel.html) | 自定义选项抽签转盘，音效与中奖移除 |
 
 ## 使用方式
 
