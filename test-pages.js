@@ -173,12 +173,24 @@ function check(name, cond) {
     const same = ctx.diffLines('a\nb', 'a\nb');
     check('diff 相同文本', same.every(r => r.t === 'same' && r.an === r.bn));
     check('diff 行号', rows[1].an === 2 && rows[1].bn === undefined && rows[2].bn === 2);
-    els['inputA'].value = 'a\nb\nc';
-    els['inputB'].value = 'a\nx\nc';
+    els['inputA'].value = 'server = a.example.com\nport = 443';
+    els['inputB'].value = 'server = b.example.com\nport = 443';
     ctx.doDiff();
     check('并排视图渲染', els['diffResult'].innerHTML.includes('sd-row change'));
     check('行内高亮标记', els['diffResult'].innerHTML.includes('part-del') && els['diffResult'].innerHTML.includes('part-add'));
     check('diff 统计', els['diffBadge'].textContent === '+1 / -1');
+    // 完全不相似的行不配成"修改"
+    els['inputA'].value = 'x\ny';
+    els['inputB'].value = 'x';
+    ctx.doDiff();
+    check('纯删除行', els['diffResult'].innerHTML.includes('sd-row del') && !els['diffResult'].innerHTML.includes('sd-row change'));
+    // 回归：删除一行 + 修改一行，配对不能错位
+    const u = ctx.buildUnits(ctx.diffLines(
+        'heihei\nrens\naaa\ndawdwadawdd\n  dwadwa\ndwdada',
+        'heihei\nrens\ndawdwadawd\n  dwadwa\ndwdada'));
+    check('相似度配对不误配', u.length === 6 &&
+        u[2].t === 'del' && u[2].aHtml.includes('aaa') &&
+        u[3].t === 'change' && u[3].aHtml.includes('part-del') && u[3].bHtml.includes('dawdwadawd'));
     const seg = ctx.inlineDiff('abcde', 'abXde');
     check('inlineDiff 段落', seg.a.length === 3 && seg.a[1].t === 'chg' && seg.a[1].text === 'c' && seg.b[1].text === 'X');
     check('inlineDiff 完全相同', ctx.inlineDiff('same', 'same').a.every(s => s.t === 'same'));
@@ -197,7 +209,7 @@ function check(name, cond) {
     els['inputB'].value = longB;
     ctx.doDiff();
     check('未变更段折叠', els['diffResult'].innerHTML.includes('展开 6 行未更改'));
-    ctx.toggleFold(4);
+    ctx.toggleFold(5);
     check('展开折叠段', !els['diffResult'].innerHTML.includes('展开 6 行未更改') &&
         (els['diffResult'].innerHTML.match(/sd-row same/g) || []).length === 15);
     ctx.switchView('unified');

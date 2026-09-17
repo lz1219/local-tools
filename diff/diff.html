@@ -305,19 +305,83 @@
             }).join('');
         }
 
+        // 行相似度：公共前后缀长度 / 最大行长（0~1），用于变更块内的智能配对
+        function lineSim(a, b) {
+            var la = a.length, lb = b.length;
+            var m = Math.min(la, lb);
+            if (m === 0) return la === lb ? 1 : 0;
+            var pre = 0;
+            while (pre < m && a[pre] === b[pre]) pre++;
+            var suf = 0;
+            while (suf < m - pre && a[la - 1 - suf] === b[lb - 1 - suf]) suf++;
+            return (pre + suf) / Math.max(la, lb);
+        }
+
+        // 变更块内配对：按相似度做不交叉最优配对（DP），避免"aaa 改为 dawdwadawd"式错位
+        // 相似度低于阈值的行保持纯删除/纯新增；超大块退化为按位置顺序配对
+        function pairBlock(ds, as) {
+            var n = ds.length, m = as.length;
+            var TH = 500; // 相似度阈值 0.5，放大了 1000 倍用整数运算
+            var pairs = [];
+
+            if (n * m <= 1000000) {
+                var sim = [];
+                for (var i = 0; i < n; i++) {
+                    sim[i] = [];
+                    for (var j = 0; j < m; j++) sim[i][j] = Math.round(lineSim(ds[i].text, as[j].text) * 1000);
+                }
+                var W = m + 1;
+                var dp = new Int32Array((n + 1) * W);
+                for (var i = 1; i <= n; i++)
+                    for (var j = 1; j <= m; j++) {
+                        var g = sim[i - 1][j - 1] >= TH ? sim[i - 1][j - 1] : 0;
+                        var best = Math.max(dp[(i - 1) * W + j], dp[i * W + j - 1]);
+                        dp[i * W + j] = Math.max(best, dp[(i - 1) * W + j - 1] + g);
+                    }
+                var i = n, j = m;
+                while (i > 0 && j > 0) {
+                    var cur = dp[i * W + j];
+                    var g = sim[i - 1][j - 1];
+                    if (g >= TH && cur === dp[(i - 1) * W + j - 1] + g) { pairs.unshift([i - 1, j - 1]); i--; j--; }
+                    else if (cur === dp[(i - 1) * W + j]) i--;
+                    else j--;
+                }
+            } else {
+                for (var t = 0; t < Math.min(n, m); t++) pairs.push([t, t]);
+            }
+
+            // 依据配对结果按序生成单元，保证两侧行号各自递增
+            var dMap = {}, aMap = {};
+            pairs.forEach(function (p) { dMap[p[0]] = p[1]; aMap[p[1]] = p[0]; });
+            var units = [], i = 0, j = 0;
+            while (i < n || j < m) {
+                if (i < n && dMap[i] !== undefined) {
+                    var aj = dMap[i];
+                    while (j < aj) {
+                        if (aMap[j] === undefined) units.push({ t: 'add', bn: as[j].bn, bHtml: esc(as[j].text) });
+                        j++;
+                    }
+                    var seg = inlineDiff(ds[i].text, as[aj].text);
+                    units.push({ t: 'change', an: ds[i].an, bn: as[aj].bn, aHtml: segsHtml(seg.a, 'del'), bHtml: segsHtml(seg.b, 'add') });
+                    j = aj + 1; i++;
+                } else if (i < n) {
+                    units.push({ t: 'del', an: ds[i].an, aHtml: esc(ds[i].text) });
+                    i++;
+                } else {
+                    if (aMap[j] === undefined) units.push({ t: 'add', bn: as[j].bn, bHtml: esc(as[j].text) });
+                    j++;
+                }
+            }
+            return units;
+        }
+
         function buildUnits(rows) {
             var units = [], pending = [];
             function flush() {
                 if (!pending.length) return;
                 var ds = [], as = [];
                 pending.forEach(function (r) { (r.t === 'del' ? ds : as).push(r); });
-                var n = Math.min(ds.length, as.length);
-                for (var i = 0; i < n; i++) {
-                    var seg = inlineDiff(ds[i].text, as[i].text);
-                    units.push({ t: 'change', an: ds[i].an, bn: as[i].bn, aHtml: segsHtml(seg.a, 'del'), bHtml: segsHtml(seg.b, 'add') });
-                }
-                for (var j = n; j < ds.length; j++) units.push({ t: 'del', an: ds[j].an, aHtml: esc(ds[j].text) });
-                for (var j = n; j < as.length; j++) units.push({ t: 'add', bn: as[j].bn, bHtml: esc(as[j].text) });
+                units = units.concat(pairBlock(ds, as));
                 pending = [];
             }
             rows.forEach(function (r) {
