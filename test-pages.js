@@ -178,6 +178,19 @@ function check(name, cond) {
     ctx.doDiff();
     check('diff 渲染', els['diffResult'].innerHTML.includes('diff-row del') && els['diffResult'].innerHTML.includes('diff-row add'));
     check('diff 统计', els['diffBadge'].textContent === '+1 / -1');
+    // 行内字符级高亮
+    check('行内高亮标记', els['diffResult'].innerHTML.includes('part-del') && els['diffResult'].innerHTML.includes('part-add'));
+    const seg = ctx.inlineDiff('abcde', 'abXde');
+    check('inlineDiff 段落', seg.a.length === 3 && seg.a[1].t === 'chg' && seg.a[1].text === 'c' && seg.b[1].text === 'X');
+    check('inlineDiff 完全相同', ctx.inlineDiff('same', 'same').a.every(s => s.t === 'same'));
+    ctx.ignoreCase = true; ctx.ignoreWs = false;
+    check('忽略大小写', ctx.diffLines('AbC', 'abc').every(r => r.t === 'same'));
+    ctx.ignoreCase = false; ctx.ignoreWs = true;
+    check('忽略首尾空白', ctx.diffLines('abc  ', '  abc').every(r => r.t === 'same'));
+    ctx.ignoreWs = false;
+    // 多行改动配对后行内高亮，多余行整行标色
+    const html2 = ctx.renderDiff(ctx.diffLines('l1\nfoo1\nbar', 'l1\nfoo2\nbaz\nbax'));
+    check('配对渲染', html2.includes('part-del') && html2.split('diff-row del').length === 3);
 }
 
 // ---- time.html ----

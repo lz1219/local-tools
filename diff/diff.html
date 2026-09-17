@@ -14,7 +14,7 @@
             border: 1px solid #dde1e6;
             border-radius: 8px;
             background: #fafbfc;
-            height: 360px;
+            height: 380px;
             overflow: auto;
             font-family: 'Consolas', 'Courier New', monospace;
             font-size: 13px;
@@ -35,6 +35,17 @@
         .diff-row.del .sign, .diff-row.del .code { color: #c62828; }
         .diff-row.add { background: #e8f5e9; }
         .diff-row.add .sign, .diff-row.add .code { color: #2e7d32; }
+        .part-del { background: rgba(229, 57, 53, 0.25); border-radius: 2px; }
+        .part-add { background: rgba(67, 160, 71, 0.28); border-radius: 2px; }
+
+        .options-row {
+            display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+        }
+        .options-row label {
+            display: flex; gap: 6px; align-items: center;
+            font-size: 13px; color: #666; cursor: pointer;
+        }
+        .options-row input[type="checkbox"] { accent-color: #4a9eff; }
 
         @media (max-width: 720px) { .editors { flex-direction: column; } }
     </style>
@@ -42,36 +53,53 @@
 <body>
     <div class="container">
         <h1>文本对比工具</h1>
-        <p class="subtitle">逐行对比两段文本 · 高亮差异 · 统计增删行数</p>
+        <p class="subtitle">逐行对比 · 行内字符级高亮 · 实时刷新</p>
 
         <div class="editors">
             <div class="panel">
                 <div class="panel-header">
                     <h3>原文</h3>
-                    <span class="badge badge-info" id="sizeBadgeA"></span>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <span class="badge badge-info" id="sizeBadgeA"></span>
+                        <button class="btn-outline btn-sm" onclick="$('fileA').click()">导入文件</button>
+                    </div>
                 </div>
                 <div class="editor-wrap">
                     <div class="line-numbers" id="linesA"><div>1</div></div>
-                    <textarea id="inputA" placeholder="粘贴原文..."></textarea>
+                    <textarea id="inputA" placeholder="粘贴原文，或直接导入文件..."></textarea>
                 </div>
+                <input type="file" id="fileA" style="display:none" onchange="loadFile(this, 'inputA', 'linesA', 'sizeBadgeA')">
             </div>
             <div class="panel">
                 <div class="panel-header">
                     <h3>新文本</h3>
-                    <span class="badge badge-info" id="sizeBadgeB"></span>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <span class="badge badge-info" id="sizeBadgeB"></span>
+                        <button class="btn-outline btn-sm" onclick="$('fileB').click()">导入文件</button>
+                    </div>
                 </div>
                 <div class="editor-wrap">
                     <div class="line-numbers" id="linesB"><div>1</div></div>
-                    <textarea id="inputB" placeholder="粘贴修改后的文本..."></textarea>
+                    <textarea id="inputB" placeholder="粘贴修改后的文本，或直接导入文件..."></textarea>
                 </div>
+                <input type="file" id="fileB" style="display:none" onchange="loadFile(this, 'inputB', 'linesB', 'sizeBadgeB')">
             </div>
         </div>
 
         <div class="btn-row">
             <button class="btn-primary" onclick="doDiff()">对比</button>
+            <button class="btn-outline btn-sm" onclick="swapSides()">交换左右</button>
+            <button class="btn-outline btn-sm" onclick="navChange(-1)">↑ 上一处</button>
+            <button class="btn-outline btn-sm" onclick="navChange(1)">↓ 下一处</button>
             <button class="btn-success" onclick="copyDiff()">复制差异文本</button>
             <button class="btn-danger btn-sm" onclick="clearAll()">清空</button>
+            <span class="badge" id="navBadge" style="align-self:center;"></span>
             <span class="badge" id="diffBadge" style="align-self:center;"></span>
+        </div>
+
+        <div class="options-row" style="margin-bottom:16px;">
+            <label><input type="checkbox" id="ignoreWs" onchange="doDiff()"> 忽略行首尾空白</label>
+            <label><input type="checkbox" id="ignoreCase" onchange="doDiff()"> 忽略大小写</label>
         </div>
 
         <div class="panel" id="resultPanel" style="display:none;">
@@ -85,17 +113,25 @@
     <div id="toast"></div>
     <script src="../assets/common.js"></script>
     <script>
-        function escapeHtml(s) {
+        var ignoreWs = false, ignoreCase = false;
+
+        function esc(s) {
             return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
 
-        // 计算中段差异：公共前后缀先剔除，中间用 LCS 动态规划求解
+        function normLine(s) {
+            if (ignoreCase) s = s.toLowerCase();
+            if (ignoreWs) s = s.replace(/^\s+|\s+$/g, '');
+            return s;
+        }
+
+        // 行级 LCS 差异：公共前后缀先剔除，中段动态规划求解
         function diffLines(a, b) {
             var A = a.split('\n'), B = b.split('\n');
             var pre = 0;
-            while (pre < A.length && pre < B.length && A[pre] === B[pre]) pre++;
+            while (pre < A.length && pre < B.length && normLine(A[pre]) === normLine(B[pre])) pre++;
             var suf = 0;
-            while (suf < A.length - pre && suf < B.length - pre && A[A.length - 1 - suf] === B[B.length - 1 - suf]) suf++;
+            while (suf < A.length - pre && suf < B.length - pre && normLine(A[A.length - 1 - suf]) === normLine(B[B.length - 1 - suf])) suf++;
 
             var midA = A.slice(pre, A.length - suf);
             var midB = B.slice(pre, B.length - suf);
@@ -108,12 +144,12 @@
                 var dp = new Uint32Array((n + 1) * W);
                 for (var i = n - 1; i >= 0; i--)
                     for (var j = m - 1; j >= 0; j--)
-                        dp[i * W + j] = midA[i] === midB[j]
+                        dp[i * W + j] = normLine(midA[i]) === normLine(midB[j])
                             ? dp[(i + 1) * W + j + 1] + 1
                             : Math.max(dp[(i + 1) * W + j], dp[i * W + j + 1]);
                 var i = 0, j = 0;
                 while (i < n && j < m) {
-                    if (midA[i] === midB[j]) { ops.push({ t: 'same', text: midA[i] }); i++; j++; }
+                    if (normLine(midA[i]) === normLine(midB[j])) { ops.push({ t: 'same', text: midA[i] }); i++; j++; }
                     else if (dp[(i + 1) * W + j] >= dp[i * W + j + 1]) { ops.push({ t: 'del', text: midA[i] }); i++; }
                     else { ops.push({ t: 'add', text: midB[j] }); j++; }
                 }
@@ -137,34 +173,183 @@
             });
         }
 
+        // 字符级差异：返回两侧的段落拆分（same / chg），用于行内高亮
+        function inlineDiff(a, b) {
+            var A = Array.from(a), B = Array.from(b);
+            var la = A.length, lb = B.length;
+            var pre = 0;
+            while (pre < la && pre < lb && A[pre] === B[pre]) pre++;
+            var suf = 0;
+            while (suf < la - pre && suf < lb - pre && A[la - 1 - suf] === B[lb - 1 - suf]) suf++;
+            var n = la - pre - suf, m = lb - pre - suf;
+
+            var aChg = new Array(la).fill(false);
+            var bChg = new Array(lb).fill(false);
+            var MAX_CELLS = 1000000;
+            if (n > 0 && m > 0 && n * m <= MAX_CELLS) {
+                var W = m + 1;
+                var dp = new Uint32Array((n + 1) * W);
+                for (var i = n - 1; i >= 0; i--)
+                    for (var j = m - 1; j >= 0; j--) {
+                        var x = pre + i, y = pre + j;
+                        dp[i * W + j] = A[x] === B[y]
+                            ? dp[(i + 1) * W + j + 1] + 1
+                            : Math.max(dp[(i + 1) * W + j], dp[i * W + j + 1]);
+                    }
+                var i = 0, j = 0;
+                while (i < n && j < m) {
+                    var x = pre + i, y = pre + j;
+                    if (A[x] === B[y]) { i++; j++; }
+                    else if (dp[(i + 1) * W + j] >= dp[i * W + j + 1]) { aChg[x] = true; i++; }
+                    else { bChg[y] = true; j++; }
+                }
+                while (i < n) { aChg[pre + i] = true; i++; }
+                while (j < m) { bChg[pre + j] = true; j++; }
+            } else {
+                for (var k = pre; k < la - suf; k++) aChg[k] = true;
+                for (var k = pre; k < lb - suf; k++) bChg[k] = true;
+            }
+
+            function build(arr, chg) {
+                var segs = [], cur = null;
+                for (var k = 0; k < arr.length; k++) {
+                    var t = chg[k] ? 'chg' : 'same';
+                    if (cur && cur.t === t) cur.text += arr[k];
+                    else { cur = { t: t, text: arr[k] }; segs.push(cur); }
+                }
+                return segs;
+            }
+            return { a: build(A, aChg), b: build(B, bChg) };
+        }
+
+        // 渲染：把连续的 del/add 块按行配对，配对行做行内高亮
+        function renderDiff(rows) {
+            var out = [];
+            var pending = [];
+
+            function segsHtml(segs, side) {
+                return segs.map(function (s) {
+                    if (s.t === 'same') return esc(s.text);
+                    return '<span class="part-' + side + '">' + esc(s.text) + '</span>';
+                }).join('') || '&nbsp;';
+            }
+
+            function flush() {
+                if (!pending.length) return;
+                var ds = [], as = [];
+                pending.forEach(function (r) { (r.t === 'del' ? ds : as).push(r); });
+                var n = Math.min(ds.length, as.length);
+                for (var i = 0; i < n; i++) {
+                    var seg = inlineDiff(ds[i].text, as[i].text);
+                    out.push({ t: 'del', an: ds[i].an, html: segsHtml(seg.a, 'del') });
+                    out.push({ t: 'add', bn: as[i].bn, html: segsHtml(seg.b, 'add') });
+                }
+                for (var j = n; j < ds.length; j++) out.push({ t: 'del', an: ds[j].an, html: esc(ds[j].text) || '&nbsp;' });
+                for (var j = n; j < as.length; j++) out.push({ t: 'add', bn: as[j].bn, html: esc(as[j].text) || '&nbsp;' });
+                pending = [];
+            }
+
+            rows.forEach(function (r) {
+                if (r.t === 'same') {
+                    flush();
+                    out.push({ t: 'same', an: r.an, bn: r.bn, html: esc(r.text) || '&nbsp;' });
+                } else pending.push(r);
+            });
+            flush();
+
+            return out.map(function (o) {
+                var sign = o.t === 'add' ? '+' : (o.t === 'del' ? '-' : ' ');
+                return '<div class="diff-row ' + o.t + '">' +
+                    '<span class="ln">' + (o.an || '') + '</span>' +
+                    '<span class="ln">' + (o.bn || '') + '</span>' +
+                    '<span class="sign">' + sign + '</span>' +
+                    '<span class="code">' + o.html + '</span></div>';
+            }).join('');
+        }
+
         var lastDiffText = '';
+        var changeEls = [], changeIdx = -1;
 
         function doDiff() {
+            ignoreWs = $('ignoreWs').checked;
+            ignoreCase = $('ignoreCase').checked;
             var a = $('inputA').value, b = $('inputB').value;
-            if (!a && !b) { showToast('请输入要对比的文本'); return; }
+            if (!a && !b) {
+                $('resultPanel').style.display = 'none';
+                $('diffBadge').textContent = '';
+                $('navBadge').textContent = '';
+                lastDiffText = '';
+                return;
+            }
             var rows = diffLines(a, b);
-            var adds = 0, dels = 0, html = '';
-            var text = [];
+            var adds = 0, dels = 0, text = [];
             rows.forEach(function (r) {
                 if (r.t === 'add') adds++;
                 if (r.t === 'del') dels++;
-                var sign = r.t === 'add' ? '+' : (r.t === 'del' ? '-' : ' ');
-                html += '<div class="diff-row ' + r.t + '">' +
-                    '<span class="ln">' + (r.an || '') + '</span>' +
-                    '<span class="ln">' + (r.bn || '') + '</span>' +
-                    '<span class="sign">' + sign + '</span>' +
-                    '<span class="code">' + (escapeHtml(r.text) || '&nbsp;') + '</span></div>';
-                text.push(sign + r.text);
+                text.push((r.t === 'add' ? '+' : r.t === 'del' ? '-' : ' ') + r.text);
             });
             lastDiffText = text.join('\n');
-            $('diffResult').innerHTML = html;
+            $('diffResult').innerHTML = renderDiff(rows);
             $('resultPanel').style.display = 'block';
 
             var b2 = $('diffBadge');
             b2.textContent = '+' + adds + ' / -' + dels;
             b2.className = 'badge ' + (adds + dels > 0 ? 'badge-err' : 'badge-ok');
             $('resultBadge').textContent = adds + dels === 0 ? '两段文本完全一致' : '';
-            if (adds + dels === 0) showToast('两段文本完全一致');
+
+            changeEls = $('diffResult').querySelectorAll
+                ? Array.prototype.slice.call($('diffResult').querySelectorAll('.diff-row.del, .diff-row.add'))
+                : [];
+            changeIdx = -1;
+            updateNavBadge();
+        }
+
+        function updateNavBadge() {
+            $('navBadge').textContent = changeEls.length
+                ? (changeIdx + 1) + ' / ' + changeEls.length + ' 处差异'
+                : (changeEls.length === 0 && $('resultPanel').style.display === 'block' ? '无差异' : '');
+            $('navBadge').className = 'badge ' + (changeEls.length ? 'badge-info' : 'badge-ok');
+        }
+
+        function navChange(dir) {
+            if (!changeEls.length) return;
+            changeIdx = (changeIdx + dir + changeEls.length) % changeEls.length;
+            updateNavBadge();
+            var el = changeEls[changeIdx];
+            if (el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+
+        // 输入防抖实时对比
+        var debounceTimer = null;
+        function scheduleDiff() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(doDiff, 250);
+        }
+
+        function swapSides() {
+            var a = $('inputA').value;
+            $('inputA').value = $('inputB').value;
+            $('inputB').value = a;
+            updateLineNumbers($('inputA'), $('linesA'));
+            updateLineNumbers($('inputB'), $('linesB'));
+            updateSize('inputA', 'sizeBadgeA');
+            updateSize('inputB', 'sizeBadgeB');
+            doDiff();
+        }
+
+        function loadFile(input, textareaId, gutterId, badgeId) {
+            var f = input.files && input.files[0];
+            input.value = '';
+            if (!f) return;
+            var r = new FileReader();
+            r.onload = function () {
+                $(textareaId).value = r.result;
+                updateLineNumbers($(textareaId), $(gutterId));
+                updateSize(textareaId, badgeId);
+                doDiff();
+                showToast('已导入 ' + f.name);
+            };
+            r.readAsText(f);
         }
 
         function copyDiff() {
@@ -178,8 +363,10 @@
             $('diffResult').innerHTML = '';
             $('resultPanel').style.display = 'none';
             $('diffBadge').textContent = '';
-            $('diffBadge').className = 'badge';
+            $('navBadge').textContent = '';
+            $('resultBadge').textContent = '';
             lastDiffText = '';
+            changeEls = []; changeIdx = -1;
             updateLineNumbers($('inputA'), $('linesA'));
             updateLineNumbers($('inputB'), $('linesB'));
             updateSize('inputA', 'sizeBadgeA');
@@ -188,6 +375,8 @@
 
         bindEditor('inputA', 'linesA', 'sizeBadgeA');
         bindEditor('inputB', 'linesB', 'sizeBadgeB');
+        $('inputA').addEventListener('input', scheduleDiff);
+        $('inputB').addEventListener('input', scheduleDiff);
     </script>
 </body>
 </html>
