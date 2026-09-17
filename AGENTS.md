@@ -17,7 +17,7 @@
 ## 新工具页规范
 
 1. 在根目录新建目录，主文件与目录同名；`<head>` 中引用 `../assets/common.css`，body 末尾先引 `../assets/common.js` 再写页面脚本
-2. 页面结构遵循统一约定：`h1` + `.subtitle`，内容区用 `.panel` 包裹，面板头部用 `.panel-header`
+2. 布局按各工具特性自行设计——单列或多列、页面宽度、面板尺寸均无强制要求，以对工具场景最合适为准（如对比类工具适合全宽双栏，转换类工具适合窄栏上下结构）；`h1` + `.subtitle` 页头、`.panel`、`.panel-header` 作为通用组件保留
 3. 文本编辑器统一用 `.editor-wrap` + `.line-numbers` 结构，通过 `bindEditor(textareaId, gutterId, badgeId?)` 绑定行号与滚动同步；输入框 id 用 `input`，输出用 `output`，行号 gutter 用 `inputLines`/`outputLines`，大小徽章用 `sizeBadge`，状态徽章用 `statusBadge`
 4. 按钮语义固定：主操作 `.btn-primary`，成功/复制类 `.btn-success`，次操作 `.btn-outline`，警示 `.btn-warning`，删除/清空 `.btn-danger`（可配 `.btn-sm`）
 5. 提示一律用 `showToast(msg)`；页面需包含 `<div id="toast"></div>`

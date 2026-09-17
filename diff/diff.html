@@ -6,15 +6,17 @@
     <title>文本对比工具</title>
     <link rel="stylesheet" href="../assets/common.css">
     <style>
+        /* 对比场景需要尽可能宽的横向空间，突破窄栏限制 */
+        .container { max-width: none; }
         .editors { display: flex; gap: 16px; }
         .editors .panel { flex: 1; min-width: 0; margin-bottom: 0; }
-        .editors .editor-wrap { height: 240px; }
+        .editors .editor-wrap { height: 300px; }
 
         .diff-wrap {
             border: 1px solid #dde1e6;
             border-radius: 8px;
             background: #fafbfc;
-            height: 420px;
+            height: 480px;
             overflow: auto;
             font-family: 'Consolas', 'Courier New', monospace;
             font-size: 13px;
