@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Base64 / URL 编解码工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .options-row {
+            display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+            margin: 0 0 4px;
+        }
+        .options-row label {
+            display: flex; gap: 6px; align-items: center;
+            font-size: 13px; color: #666; cursor: pointer;
+        }
+        .options-row input[type="checkbox"] { accent-color: #4a9eff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Base64 / URL 编解码工具</h1>
+        <p class="subtitle">Base64 与 URL 编码双向转换 · Unicode 自动处理</p>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>输入内容</h3>
+                <span class="badge badge-info" id="sizeBadge"></span>
+            </div>
+            <div class="editor-wrap">
+                <div class="line-numbers" id="inputLines"><div>1</div></div>
+                <textarea id="input" placeholder="粘贴要编码/解码的内容..."></textarea>
+            </div>
+        </div>
+
+        <div class="btn-row">
+            <button class="btn-primary" onclick="run(b64encodeText, 'Base64 编码完成')">Base64 编码</button>
+            <button class="btn-outline" onclick="run(b64decodeText, 'Base64 解码完成')">Base64 解码</button>
+            <button class="btn-warning" onclick="run(urlEncodeText, 'URL 编码完成')">URL 编码</button>
+            <button class="btn-outline" onclick="run(urlDecodeText, 'URL 解码完成')">URL 解码</button>
+            <button class="btn-danger btn-sm" onclick="clearAll()">清空</button>
+        </div>
+
+        <div class="options-row">
+            <label><input type="checkbox" id="keepAscii"> URL 编码保留 <code>: / ? &amp; =</code> 等符号（encodeURI 风格）</label>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>处理结果</h3>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <span class="badge" id="statusBadge"></span>
+                    <button class="btn-outline btn-sm" onclick="copyOutput()">复制结果</button>
+                </div>
+            </div>
+            <div class="editor-wrap">
+                <div class="line-numbers" id="outputLines"><div>1</div></div>
+                <textarea id="output" readonly placeholder="处理结果将显示在这里..."></textarea>
+            </div>
+        </div>
+
+        <div class="info-text" style="text-align:center;">
+            Base64 按 UTF-8 处理中文 · 解码自动忽略空白字符 · URL 解码优先 decodeURIComponent
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        function setStatus(ok, msg) {
+            var b = $('statusBadge');
+            b.textContent = msg;
+            b.className = 'badge ' + (ok ? 'badge-ok' : 'badge-err');
+        }
+
+        function setOutput(text, ok, msg) {
+            $('output').value = text;
+            updateLineNumbers($('output'), $('outputLines'));
+            setStatus(ok, msg);
+        }
+
+        function run(fn, okMsg) {
+            var raw = $('input').value;
+            if (!raw) { showToast('请输入内容'); return; }
+            try {
+                setOutput(fn(raw), true, okMsg);
+            } catch (e) {
+                setStatus(false, e.message || '处理失败');
+            }
+        }
+
+        function b64encodeText(str) {
+            var bytes = new TextEncoder().encode(str);
+            var bin = '', CHUNK = 0x8000;
+            for (var i = 0; i < bytes.length; i += CHUNK)
+                bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+            return btoa(bin);
+        }
+
+        function b64decodeText(str) {
+            var clean = str.trim().replace(/\s+/g, '');
+            if (clean.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(clean))
+                throw new Error('不是有效的 Base64 字符串');
+            var bin = atob(clean);
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            try {
+                return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+            } catch (e) {
+                throw new Error('Base64 格式正确，但内容不是有效的 UTF-8 文本');
+            }
+        }
+
+        function urlEncodeText(str) {
+            return $('keepAscii').checked ? encodeURI(str) : encodeURIComponent(str);
+        }
+
+        function urlDecodeText(str) {
+            try {
+                return decodeURIComponent(str);
+            } catch (e) {
+                try {
+                    return decodeURI(str);
+                } catch (e2) {
+                    throw new Error('不是有效的 URL 编码字符串');
+                }
+            }
+        }
+
+        function copyOutput() {
+            var text = $('output').value;
+            if (!text) { showToast('没有可复制的内容'); return; }
+            navigator.clipboard.writeText(text).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        function clearAll() {
+            $('input').value = '';
+            $('output').value = '';
+            $('statusBadge').textContent = '';
+            $('statusBadge').className = 'badge';
+            updateLineNumbers($('input'), $('inputLines'));
+            updateLineNumbers($('output'), $('outputLines'));
+            updateSize('input', 'sizeBadge');
+        }
+
+        bindEditor('input', 'inputLines', 'sizeBadge');
+        bindEditor('output', 'outputLines');
+    </script>
+</body>
+</html>

@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>时间戳转换工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .now-box {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+        .now-item {
+            background: #fafbfc; border: 1px solid #dde1e6; border-radius: 8px;
+            padding: 12px 16px;
+        }
+        .now-item .label { font-size: 12px; color: #999; margin-bottom: 4px; }
+        .now-item .value {
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 18px; color: #2c3e50; font-weight: 600;
+        }
+        .ts-input {
+            flex: 1; padding: 9px 12px; border: 1px solid #dde1e6; border-radius: 6px;
+            background: #fafbfc; color: #333;
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 14px;
+            min-width: 180px;
+        }
+        .ts-input:focus {
+            outline: none; border-color: #4a9eff;
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.15);
+        }
+        .convert-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .result-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;
+            margin-top: 14px;
+        }
+        .result-item {
+            background: #f0f4f8; border-radius: 8px; padding: 10px 14px;
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 13px;
+            color: #2c3e50; word-break: break-all; cursor: pointer;
+        }
+        .result-item .label { font-size: 12px; color: #888; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; margin-bottom: 4px; }
+        .result-item:hover { background: #e3f2fd; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>时间戳转换工具</h1>
+        <p class="subtitle">Unix 时间戳与日期时间互转 · 秒/毫秒自动识别</p>
+
+        <div class="panel">
+            <div class="panel-header"><h3>当前时间</h3></div>
+            <div class="now-box">
+                <div class="now-item"><div class="label">本地时间</div><div class="value" id="nowLocal">--</div></div>
+                <div class="now-item"><div class="label">UTC 时间</div><div class="value" id="nowUtc">--</div></div>
+                <div class="now-item"><div class="label">时间戳（秒）</div><div class="value" id="nowTsSec">--</div></div>
+                <div class="now-item"><div class="label">时间戳（毫秒）</div><div class="value" id="nowTsMs">--</div></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>时间戳 → 时间</h3></div>
+            <div class="convert-row">
+                <input type="text" class="ts-input" id="tsInput" placeholder="输入时间戳，如 1726540800 或 1726540800000">
+                <button class="btn-primary btn-sm" onclick="tsToDate()">转换</button>
+                <button class="btn-outline btn-sm" onclick="fillNow()">填入当前</button>
+            </div>
+            <div class="result-grid" id="tsResult"></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>时间 → 时间戳</h3></div>
+            <div class="convert-row">
+                <input type="datetime-local" class="ts-input" id="dtInput" step="1">
+                <button class="btn-primary btn-sm" onclick="dateToTs()">转换</button>
+                <button class="btn-outline btn-sm" onclick="fillNowDt()">填入当前</button>
+            </div>
+            <div class="result-grid" id="dtResult"></div>
+        </div>
+
+        <div class="info-text" style="text-align:center;">
+            点击结果项可直接复制 · 13 位按毫秒解析，10 位按秒解析
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+        function fmtLocal(d) {
+            return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' +
+                pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        }
+        function fmtUtc(d) {
+            return d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate()) + ' ' +
+                pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds()) + ' UTC';
+        }
+
+        function tick() {
+            var d = new Date();
+            $('nowLocal').textContent = fmtLocal(d);
+            $('nowUtc').textContent = fmtUtc(d);
+            $('nowTsSec').textContent = Math.floor(d.getTime() / 1000);
+            $('nowTsMs').textContent = d.getTime();
+        }
+        setInterval(tick, 1000);
+        tick();
+
+        function resultItem(label, value) {
+            return '<div class="result-item" onclick="copyText(this)" data-v="' +
+                String(value).replace(/"/g, '&quot;') + '">' +
+                '<div class="label">' + label + '</div>' + value + '</div>';
+        }
+
+        function copyText(el) {
+            navigator.clipboard.writeText(el.dataset.v).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        function tsToDate() {
+            var raw = $('tsInput').value.trim();
+            if (!raw || !/^\d+$/.test(raw)) { showToast('请输入纯数字时间戳'); return; }
+            var isMs = raw.length > 11;
+            var d = new Date(isMs ? Number(raw) : Number(raw) * 1000);
+            if (isNaN(d.getTime())) { showToast('时间戳超出有效范围'); return; }
+            $('tsResult').innerHTML =
+                resultItem('本地时间', fmtLocal(d)) +
+                resultItem('UTC 时间', fmtUtc(d)) +
+                resultItem('ISO 8601', d.toISOString()) +
+                resultItem('相对时间', relTime(d));
+        }
+
+        function relTime(d) {
+            var diff = Date.now() - d.getTime();
+            var past = diff >= 0;
+            var abs = Math.abs(diff);
+            var s = Math.floor(abs / 1000);
+            var txt;
+            if (s < 60) txt = s + ' 秒';
+            else if (s < 3600) txt = Math.floor(s / 60) + ' 分钟';
+            else if (s < 86400) txt = Math.floor(s / 3600) + ' 小时';
+            else txt = Math.floor(s / 86400) + ' 天';
+            return (past ? '' : '还有 ') + txt + (past ? '前' : '');
+        }
+
+        function dateToTs() {
+            var raw = $('dtInput').value;
+            if (!raw) { showToast('请选择日期时间'); return; }
+            var d = new Date(raw);
+            if (isNaN(d.getTime())) { showToast('日期时间无效'); return; }
+            $('dtResult').innerHTML =
+                resultItem('时间戳（秒）', Math.floor(d.getTime() / 1000)) +
+                resultItem('时间戳（毫秒）', d.getTime()) +
+                resultItem('UTC 时间', fmtUtc(d));
+        }
+
+        function fillNow() {
+            $('tsInput').value = Date.now();
+            tsToDate();
+        }
+
+        function fillNowDt() {
+            var d = new Date();
+            $('dtInput').value =
+                d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' +
+                pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+            dateToTs();
+        }
+    </script>
+</body>
+</html>

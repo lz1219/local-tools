@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>本地工具箱</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            min-height: 100vh;
+            padding: 30px 20px;
+        }
+        .container { max-width: 960px; margin: 0 auto; }
+        h1 { text-align: center; color: #2c3e50; margin-bottom: 8px; font-size: 26px; }
+        .subtitle { text-align: center; color: #999; margin-bottom: 32px; font-size: 13px; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+        }
+        .card {
+            display: block;
+            background: #fff;
+            border: 1px solid #e0e4e8;
+            border-radius: 10px;
+            padding: 20px;
+            text-decoration: none;
+            color: inherit;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+            transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+        }
+        .card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            transform: translateY(-2px);
+            border-color: #4a9eff;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .card-title { font-size: 16px; font-weight: 600; color: #2c3e50; }
+        .badge { font-size: 11px; padding: 2px 10px; border-radius: 10px; font-weight: 600; flex-shrink: 0; }
+        .badge-blue { background: #e3f2fd; color: #1565c0; }
+        .badge-green { background: #e8f5e9; color: #2e7d32; }
+        .badge-orange { background: #fff3e0; color: #ef6c00; }
+        .badge-gray { background: #f0f2f5; color: #888; }
+        .card-desc { font-size: 13px; color: #888; line-height: 1.6; }
+        .card.coming { opacity: 0.75; }
+
+        .footer {
+            margin-top: 32px;
+            text-align: center;
+            font-size: 12px;
+            color: #aaa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>本地工具箱</h1>
+        <p class="subtitle">纯前端 · 无需联网 · 数据不出本机</p>
+
+        <div class="grid">
+            <a class="card" href="json-tools/json.html">
+                <div class="card-header">
+                    <span class="card-title">JSON 序列化工具</span>
+                    <span class="badge badge-blue">JSON</span>
+                </div>
+                <p class="card-desc">格式化 / 压缩 / 校验 / 转义 / 反转义，支持折叠树形浏览与自定义缩进。</p>
+            </a>
+
+            <a class="card" href="str/replace.html">
+                <div class="card-header">
+                    <span class="card-title">字符串替换工具</span>
+                    <span class="badge badge-green">文本</span>
+                </div>
+                <p class="card-desc">多条规则顺序替换，支持自定义添加/删除规则，带行号编辑器。</p>
+            </a>
+
+            <a class="card" href="encode/encode.html">
+                <div class="card-header">
+                    <span class="card-title">Base64 / URL 编解码</span>
+                    <span class="badge badge-orange">编码</span>
+                </div>
+                <p class="card-desc">Base64 与 URL 百分号编码的双向转换，支持中文。</p>
+            </a>
+
+            <a class="card" href="node/node.html">
+                <div class="card-header">
+                    <span class="card-title">节点链接解析</span>
+                    <span class="badge badge-blue">网络</span>
+                </div>
+                <p class="card-desc">解析 vmess / trojan / ss / ssr 分享链接，编辑地址端口后重新生成。</p>
+            </a>
+
+            <a class="card" href="diff/diff.html">
+                <div class="card-header">
+                    <span class="card-title">文本对比 Diff</span>
+                    <span class="badge badge-green">文本</span>
+                </div>
+                <p class="card-desc">两段文本逐行对比，高亮增删行，统计差异数量。</p>
+            </a>
+
+            <a class="card" href="time/time.html">
+                <div class="card-header">
+                    <span class="card-title">时间戳转换</span>
+                    <span class="badge badge-orange">时间</span>
+                </div>
+                <p class="card-desc">Unix 时间戳与日期时间互转，秒/毫秒自动识别，实时时钟。</p>
+            </a>
+
+            <div class="card coming">
+                <div class="card-header">
+                    <span class="card-title">图片压缩</span>
+                    <span class="badge badge-gray">规划中</span>
+                </div>
+                <p class="card-desc">本地 Canvas 压缩图片、调整尺寸、转格式，不联网。</p>
+            </div>
+        </div>
+
+        <p class="footer">新工具直接添加卡片链接即可 · 全部工具统一浅色主题</p>
+    </div>
+</body>
+</html>

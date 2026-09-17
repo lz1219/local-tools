@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>字符串替换工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .rule-row {
+            display: flex; gap: 10px; align-items: center; margin-bottom: 10px;
+        }
+        .rule-row input {
+            flex: 1; padding: 9px 12px; border: 1px solid #dde1e6; border-radius: 6px;
+            background: #fafbfc; color: #e53935;
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 13px;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .rule-row input.rep { color: #43a047; }
+        .rule-row input:focus {
+            outline: none; border-color: #4a9eff;
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.15);
+        }
+        .rule-row .arrow { color: #fb8c00; font-size: 15px; flex-shrink: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>字符串替换工具</h1>
+        <p class="subtitle">多条规则顺序替换 · 支持自定义添加/删除规则</p>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>替换规则</h3>
+                <span class="badge badge-info" id="ruleCount"></span>
+            </div>
+            <div id="rulesList"></div>
+            <button class="btn-outline btn-sm" style="margin-top:4px" onclick="addRule()">+ 添加规则</button>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>输入内容</h3>
+                <span class="badge badge-info" id="sizeBadge"></span>
+            </div>
+            <div class="editor-wrap" style="height:280px;">
+                <div class="line-numbers" id="inputLines"><div>1</div></div>
+                <textarea id="input" placeholder="粘贴要替换的文本..."></textarea>
+            </div>
+        </div>
+
+        <div class="btn-row">
+            <button class="btn-primary" onclick="doReplace()">替换</button>
+            <button class="btn-success" onclick="copyInput('output')">复制结果</button>
+            <button class="btn-outline" onclick="copyInput('input')">复制输入</button>
+            <button class="btn-danger btn-sm" onclick="clearAll()">清空</button>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>替换结果</h3>
+                <span class="badge" id="statusBadge"></span>
+            </div>
+            <div class="editor-wrap" style="height:280px;">
+                <div class="line-numbers" id="outputLines"><div>1</div></div>
+                <textarea id="output" readonly placeholder="结果将显示在这里..."></textarea>
+            </div>
+        </div>
+
+        <div class="info-text" style="text-align:center;">
+            红色为查找内容 · 绿色为替换为 · 规则从上到下依次执行
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        var defaultRules = [
+            ['tree2053.hh7758521.top:10086', 'tree10086.hh7758521.top:443'],
+            ['&security=none', 'tls=true']
+        ];
+
+        var rules = defaultRules.map(function (r) { return [r[0], r[1]]; });
+
+        function updateRuleCount() {
+            $('ruleCount').textContent = rules.length + ' 条规则';
+        }
+
+        function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        }
+
+        function renderRules() {
+            $('rulesList').innerHTML = rules.map(function (r, i) {
+                return '<div class="rule-row">' +
+                    '<input type="text" class="find" data-idx="' + i + '" value="' + esc(r[0]) + '" placeholder="查找">' +
+                    '<span class="arrow">→</span>' +
+                    '<input type="text" class="rep" data-idx="' + i + '" value="' + esc(r[1]) + '" placeholder="替换为">' +
+                    '<button class="btn-danger btn-sm del" data-idx="' + i + '">✕</button>' +
+                '</div>';
+            }).join('');
+            updateRuleCount();
+        }
+
+        // 事件委托：输入实时写回 rules，点击 ✕ 删除对应行
+        $('rulesList').addEventListener('input', function (e) {
+            var t = e.target, i = +t.dataset.idx;
+            if (t.classList.contains('find')) rules[i][0] = t.value;
+            else if (t.classList.contains('rep')) rules[i][1] = t.value;
+        });
+        $('rulesList').addEventListener('click', function (e) {
+            var btn = e.target.closest && e.target.closest('.del');
+            if (btn) removeRule(+btn.dataset.idx);
+        });
+
+        function addRule() {
+            rules.push(['', '']);
+            renderRules();
+        }
+
+        function removeRule(i) {
+            rules.splice(i, 1);
+            renderRules();
+        }
+
+        function doReplace() {
+            var text = $('input').value;
+            var applied = 0;
+            for (var i = 0; i < rules.length; i++) {
+                var old = rules[i][0], rep = rules[i][1];
+                if (old) {
+                    if (text.split(old).length > 1) applied++;
+                    text = text.split(old).join(rep);
+                }
+            }
+            $('output').value = text;
+            updateLineNumbers($('output'), $('outputLines'));
+
+            var b = $('statusBadge');
+            b.textContent = '已应用 ' + applied + ' 条规则';
+            b.className = 'badge ' + (applied > 0 ? 'badge-ok' : 'badge-info');
+        }
+
+        function copyInput(id) {
+            var text = $(id).value;
+            if (!text) { showToast('没有可复制的内容'); return; }
+            navigator.clipboard.writeText(text).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        function clearAll() {
+            $('input').value = '';
+            $('output').value = '';
+            $('statusBadge').textContent = '';
+            $('statusBadge').className = 'badge';
+            updateLineNumbers($('input'), $('inputLines'));
+            updateLineNumbers($('output'), $('outputLines'));
+            updateSize('input', 'sizeBadge');
+        }
+
+        bindEditor('input', 'inputLines', 'sizeBadge');
+        bindEditor('output', 'outputLines');
+        renderRules();
+    </script>
+</body>
+</html>

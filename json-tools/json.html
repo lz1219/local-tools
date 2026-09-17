@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON 序列化工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .tools-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+        /* tree view */
+        .tree-wrap {
+            border: 1px solid #dde1e6;
+            border-radius: 8px;
+            background: #fafbfc;
+            height: 420px;
+            overflow: auto;
+        }
+        .tree-content {
+            padding: 10px 0;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 24px;
+        }
+        .tree-node {
+            padding: 0 16px 0 0;
+            white-space: nowrap;
+        }
+        .tree-indent {
+            display: inline-block;
+            width: 24px;
+        }
+        .tree-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            color: #999;
+            font-size: 12px;
+            border-radius: 3px;
+            vertical-align: middle;
+            transition: background 0.15s;
+            user-select: none;
+        }
+        .tree-toggle:hover { background: #e8ecef; color: #333; }
+        .tree-toggle.leaf { visibility: hidden; }
+        .tree-key { color: #881391; }
+        .tree-colon { color: #999; margin: 0 4px 0 1px; }
+        .tree-str { color: #0b7c2e; }
+        .tree-num { color: #1a56db; }
+        .tree-bool { color: #e65100; }
+        .tree-null { color: #999; font-style: italic; }
+        .tree-brace { color: #333; font-weight: 500; }
+        .tree-comma { color: #999; }
+        .tree-hint {
+            color: #bbb;
+            font-style: italic;
+            font-size: 12px;
+            margin-left: 4px;
+        }
+
+        .view-toggle {
+            display: inline-flex;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            overflow: hidden;
+            margin-left: 8px;
+        }
+        .view-toggle button {
+            border: none;
+            border-radius: 0;
+            padding: 4px 12px;
+            font-size: 12px;
+            background: #fff;
+            color: #666;
+        }
+        .view-toggle button.active { background: #4a9eff; color: #fff; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>JSON 序列化工具</h1>
+        <p class="subtitle">格式化 / 压缩 / 校验 / 转义 / 折叠浏览</p>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>输入</h3>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <span class="badge badge-info" id="sizeBadge"></span>
+                    <button class="btn-outline btn-sm" onclick="loadSample()">示例数据</button>
+                </div>
+            </div>
+            <div class="editor-wrap">
+                <div class="line-numbers" id="inputLines"><div>1</div></div>
+                <textarea id="input" placeholder='粘贴 JSON 字符串，例如：{"name":"张三","age":28}'></textarea>
+            </div>
+            <div class="error-detail" id="errorDetail"></div>
+        </div>
+
+        <div class="btn-row">
+            <button class="btn-primary" onclick="format()">格式化</button>
+            <button class="btn-warning" onclick="minify()">压缩</button>
+            <button class="btn-success" onclick="validate()">校验</button>
+            <button class="btn-outline" onclick="escapeJson()">转义</button>
+            <button class="btn-outline" onclick="unescapeJson()">反转义</button>
+            <button class="btn-outline" onclick="copyInput()">复制输入</button>
+            <button class="btn-danger btn-sm" onclick="clearAll()">清空</button>
+        </div>
+
+        <div class="tools-row">
+            <span style="font-size:13px; color:#888;">缩进:</span>
+            <select class="indent-select" id="indentSelect">
+                <option value="2" selected>2 空格</option>
+                <option value="4">4 空格</option>
+                <option value="tab">Tab</option>
+            </select>
+            <div class="view-toggle">
+                <button id="btnTreeView" class="active" onclick="switchView('tree')">折叠视图</button>
+                <button id="btnTextView" onclick="switchView('text')">文本视图</button>
+            </div>
+            <button class="btn-outline btn-sm" onclick="expandAll()">全部展开</button>
+            <button class="btn-outline btn-sm" onclick="collapseAll()">全部折叠</button>
+        </div>
+
+        <div class="panel" style="margin-top:20px;">
+            <div class="panel-header">
+                <h3>输出</h3>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <span class="badge" id="statusBadge"></span>
+                    <button class="btn-outline btn-sm" onclick="copyOutput()">复制结果</button>
+                </div>
+            </div>
+            <div class="summary-bar" id="summaryBar"></div>
+            <div class="tree-wrap" id="treeView">
+                <div class="tree-content" id="treeContent"></div>
+            </div>
+            <div class="editor-wrap" id="textView" style="height:420px; display:none;">
+                <div class="line-numbers" id="outputLines"><div>1</div></div>
+                <textarea id="output" readonly placeholder="处理结果将显示在这里..."></textarea>
+            </div>
+        </div>
+
+        <div class="info-text" style="text-align:center;">
+            折叠视图支持对象/数组展开收起 | 大文件自动切换文本模式 | 可自定义缩进
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        var currentView = 'tree';
+        var lastParsed = null;
+        var collapsedPaths = {};
+
+        function getIndent() {
+            var v = $('indentSelect').value;
+            return v === 'tab' ? '\t' : parseInt(v);
+        }
+
+        function setStatus(ok, msg) {
+            var b = $('statusBadge');
+            b.textContent = msg;
+            b.className = 'badge ' + (ok ? 'badge-ok' : 'badge-err');
+        }
+
+        function showError(msg) {
+            var el = $('errorDetail');
+            if (msg) { el.textContent = msg; el.style.display = 'block'; }
+            else { el.style.display = 'none'; }
+        }
+
+        function switchView(v) {
+            currentView = v;
+            $('treeView').style.display = v === 'tree' ? 'block' : 'none';
+            $('textView').style.display = v === 'text' ? 'flex' : 'none';
+            $('btnTreeView').classList.toggle('active', v === 'tree');
+            $('btnTextView').classList.toggle('active', v === 'text');
+        }
+
+        function countNodes(obj) {
+            if (obj === null || typeof obj !== 'object') return 1;
+            var c = 1;
+            var items = Array.isArray(obj) ? obj : Object.values(obj);
+            for (var i = 0; i < items.length; i++) c += countNodes(items[i]);
+            return c;
+        }
+
+        function escapeHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        // ---- Tree Rendering ----
+        var treeHtml = '';
+        var _currentPathStack = [];
+
+        function renderValue(val) {
+            if (val === null) {
+                treeHtml += '<span class="tree-null">null</span>';
+            } else if (typeof val === 'boolean') {
+                treeHtml += '<span class="tree-bool">' + val + '</span>';
+            } else if (typeof val === 'number') {
+                treeHtml += '<span class="tree-num">' + val + '</span>';
+            } else if (typeof val === 'string') {
+                treeHtml += '<span class="tree-str">"' + escapeHtml(val) + '"</span>';
+            }
+        }
+
+        function indent(depth) {
+            for (var i = 0; i < depth; i++) treeHtml += '<span class="tree-indent"></span>';
+        }
+
+        function addLine() {
+            treeHtml += '</div><div class="tree-line">';
+        }
+
+        function renderNode(key, val, depth, isLast, isArrayItem) {
+            indent(depth);
+
+            if (!isArrayItem) {
+                treeHtml += '<span class="tree-key">"' + escapeHtml(key) + '"</span>';
+                treeHtml += '<span class="tree-colon">: </span>';
+            }
+
+            if (val !== null && typeof val === 'object') {
+                renderObject(val, depth);
+            } else {
+                renderValue(val);
+            }
+
+            if (!isLast) treeHtml += '<span class="tree-comma">,</span>';
+            addLine();
+        }
+
+        function renderObject(data, depth) {
+            var isArray = Array.isArray(data);
+            var open = isArray ? '[' : '{';
+            var close = isArray ? ']' : '}';
+            var entries = isArray ? data.map(function (v, i) { return [i, v]; }) : Object.entries(data);
+            var path = _currentPathStack.join('.');
+
+            var toggleBtn = '<span class="tree-toggle" onclick="toggleNode(\'' + path + '\')">' + (collapsedPaths[path] ? '&#9654;' : '&#9660;') + '</span>';
+
+            if (collapsedPaths[path]) {
+                treeHtml += toggleBtn;
+                treeHtml += '<span class="tree-brace">' + open + '</span>';
+                treeHtml += '<span class="tree-hint"> ' + entries.length + (isArray ? ' 项' : ' 个属性') + ' </span>';
+                treeHtml += '<span class="tree-brace">' + close + '</span>';
+                return;
+            }
+
+            if (entries.length === 0) {
+                treeHtml += '<span class="tree-toggle leaf">&#9654;</span>';
+                treeHtml += '<span class="tree-brace">' + open + close + '</span>';
+                return;
+            }
+
+            treeHtml += toggleBtn;
+            treeHtml += '<span class="tree-brace">' + open + '</span>';
+            addLine();
+
+            for (var i = 0; i < entries.length; i++) {
+                var childKey = entries[i][0];
+                var childVal = entries[i][1];
+                var isLast = i === entries.length - 1;
+
+                if (childVal !== null && typeof childVal === 'object') {
+                    _currentPathStack.push(childKey);
+                    renderNode(childKey, childVal, depth + 1, isLast, isArray);
+                    _currentPathStack.pop();
+                } else {
+                    renderNode(childKey, childVal, depth + 1, isLast, isArray);
+                }
+            }
+
+            indent(depth);
+            treeHtml += '<span class="tree-brace">' + close + '</span>';
+        }
+
+        function renderTree() {
+            if (!lastParsed) return;
+            treeHtml = '<div class="tree-line">';
+            _currentPathStack = ['$'];
+            renderObject(lastParsed, 0);
+            treeHtml += '</div>';
+            $('treeContent').innerHTML = treeHtml;
+        }
+
+        function toggleNode(path) {
+            collapsedPaths[path] = !collapsedPaths[path];
+            renderTree();
+        }
+
+        function expandAll() {
+            collapsedPaths = {};
+            renderTree();
+        }
+
+        function collapseAll() {
+            if (!lastParsed) return;
+            collapsedPaths = {};
+            function walk(obj, path) {
+                if (obj === null || typeof obj !== 'object') return;
+                collapsedPaths[path] = true;
+                var entries = Array.isArray(obj) ? obj.map(function (v, i) { return [i, v]; }) : Object.entries(obj);
+                for (var i = 0; i < entries.length; i++) walk(entries[i][1], path + '.' + entries[i][0]);
+            }
+            walk(lastParsed, '$');
+            renderTree();
+        }
+
+        // ---- Actions ----
+        function format() {
+            var raw = $('input').value.trim();
+            if (!raw) { showToast('请输入内容'); return; }
+            try {
+                var obj = JSON.parse(raw);
+                lastParsed = obj;
+                collapsedPaths = {};
+
+                var formatted = JSON.stringify(obj, null, getIndent());
+                $('output').value = formatted;
+                updateLineNumbers($('output'), $('outputLines'));
+
+                var nodeCount = countNodes(obj);
+                var lineCount = formatted.split('\n').length;
+                $('summaryBar').textContent = lineCount + ' 行 · ' + nodeCount + ' 节点 · ' + formatSize(raw.length);
+
+                if (nodeCount > 5000) {
+                    switchView('text');
+                    showToast('节点数 ' + nodeCount + '，已切换文本模式');
+                } else {
+                    renderTree();
+                    switchView('tree');
+                }
+
+                setStatus(true, '格式化成功');
+                showError('');
+            } catch (e) {
+                setStatus(false, '解析失败');
+                showError(e.message);
+            }
+        }
+
+        function minify() {
+            var raw = $('input').value.trim();
+            if (!raw) { showToast('请输入内容'); return; }
+            try {
+                var obj = JSON.parse(raw);
+                lastParsed = obj;
+                $('output').value = JSON.stringify(obj);
+                updateLineNumbers($('output'), $('outputLines'));
+                setStatus(true, '压缩完成');
+                showError('');
+            } catch (e) {
+                setStatus(false, '解析失败');
+                showError(e.message);
+            }
+        }
+
+        function validate() {
+            var raw = $('input').value.trim();
+            if (!raw) { showToast('请输入内容'); return; }
+            try {
+                JSON.parse(raw);
+                setStatus(true, 'JSON 有效');
+                showError('');
+                showToast('JSON 格式正确');
+            } catch (e) {
+                setStatus(false, 'JSON 无效');
+                showError(e.message);
+            }
+        }
+
+        function escapeJson() {
+            var raw = $('input').value;
+            if (!raw) { showToast('请输入内容'); return; }
+            $('output').value = raw.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t');
+            updateLineNumbers($('output'), $('outputLines'));
+            setStatus(true, '转义完成');
+            showError('');
+        }
+
+        function unescapeJson() {
+            var raw = $('input').value;
+            if (!raw) { showToast('请输入内容'); return; }
+            try {
+                $('output').value = JSON.parse('"' + raw.replace(/^"|"$/g, '') + '"');
+                setStatus(true, '反转义完成');
+                showError('');
+            } catch (e) {
+                $('output').value = raw.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+                setStatus(true, '反转义完成（部分）');
+                showError('');
+            }
+            updateLineNumbers($('output'), $('outputLines'));
+        }
+
+        function copyOutput() {
+            var text = $('output').value;
+            if (!text) { showToast('没有可复制的内容'); return; }
+            navigator.clipboard.writeText(text).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        function copyInput() {
+            var text = $('input').value;
+            if (!text) { showToast('没有可复制的内容'); return; }
+            navigator.clipboard.writeText(text).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        function clearAll() {
+            $('input').value = '';
+            $('output').value = '';
+            lastParsed = null;
+            collapsedPaths = {};
+            $('treeContent').innerHTML = '';
+            $('statusBadge').textContent = '';
+            $('statusBadge').className = 'badge';
+            $('summaryBar').textContent = '';
+            showError('');
+            updateLineNumbers($('input'), $('inputLines'));
+            updateLineNumbers($('output'), $('outputLines'));
+            updateSize('input', 'sizeBadge');
+        }
+
+        function loadSample() {
+            var sample = {
+                "name": "张三",
+                "age": 28,
+                "email": "zhangsan@example.com",
+                "address": {
+                    "city": "北京",
+                    "district": "朝阳区",
+                    "street": "建国路88号"
+                },
+                "hobbies": ["编程", "读书", "跑步"],
+                "projects": [
+                    { "name": "项目A", "status": "进行中", "budget": 50000 },
+                    { "name": "项目B", "status": "已完成", "budget": 120000 }
+                ],
+                "active": true,
+                "score": null
+            };
+            $('input').value = JSON.stringify(sample);
+            updateSize('input', 'sizeBadge');
+            updateLineNumbers($('input'), $('inputLines'));
+            showToast('已加载示例数据');
+        }
+
+        $('indentSelect').addEventListener('change', function () {
+            if ($('output').value) format();
+        });
+
+        bindEditor('input', 'inputLines', 'sizeBadge');
+        bindEditor('output', 'outputLines');
+        switchView('tree');
+    </script>
+</body>
+</html>

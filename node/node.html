@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>节点链接解析工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .b-vmess { background: #e3f2fd; color: #1565c0; }
+        .b-trojan { background: #ffeef0; color: #c62828; }
+        .b-ss { background: #e8f5e9; color: #2e7d32; }
+        .b-ssr { background: #fff3e0; color: #ef6c00; }
+        .b-unknown { background: #f0f2f5; color: #888; }
+
+        .field-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+        }
+        .field { display: flex; flex-direction: column; gap: 4px; }
+        .field label { font-size: 12px; color: #888; }
+        .field input {
+            padding: 7px 10px; border: 1px solid #dde1e6; border-radius: 6px;
+            background: #fafbfc; color: #333;
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 13px;
+        }
+        .field input:focus {
+            outline: none; border-color: #4a9eff;
+            box-shadow: 0 0 0 2px rgba(74,158,255,0.15);
+        }
+        .node-card .panel-header h3 { display: flex; gap: 8px; align-items: center; }
+        .card-title-text { font-size: 13px; color: #888; font-weight: 400; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>节点链接解析工具</h1>
+        <p class="subtitle">vmess / trojan / ss / ssr 分享链接解析编辑 · 重新生成</p>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>分享链接</h3>
+                <span class="badge badge-info" id="sizeBadge"></span>
+            </div>
+            <div class="editor-wrap" style="height:180px;">
+                <div class="line-numbers" id="inputLines"><div>1</div></div>
+                <textarea id="input" placeholder="粘贴分享链接，每行一个，可一次粘贴多个..."></textarea>
+            </div>
+        </div>
+
+        <div class="btn-row">
+            <button class="btn-primary" onclick="parseAll()">解析链接</button>
+            <button class="btn-success" onclick="generateAll()">生成全部链接</button>
+            <button class="btn-danger btn-sm" onclick="clearAll()">清空</button>
+        </div>
+
+        <div id="nodes"></div>
+
+        <div class="panel" id="outputPanel" style="display:none;">
+            <div class="panel-header">
+                <h3>生成结果</h3>
+                <button class="btn-outline btn-sm" onclick="copyOutput()">复制结果</button>
+            </div>
+            <div class="editor-wrap" style="height:180px;">
+                <div class="line-numbers" id="outputLines"><div>1</div></div>
+                <textarea id="output" readonly placeholder="生成的链接将显示在这里..."></textarea>
+            </div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        // ---- base64 helpers ----
+        function b64norm(s) {
+            s = s.replace(/-/g, '+').replace(/_/g, '/');
+            while (s.length % 4) s += '=';
+            return s;
+        }
+        function b64decodeUtf8(s) {
+            var clean = b64norm(s.trim().replace(/\s+/g, ''));
+            var bin = atob(clean);
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        }
+        function b64encodeUtf8(str) {
+            var bytes = new TextEncoder().encode(str);
+            var bin = '', CHUNK = 0x8000;
+            for (var i = 0; i < bytes.length; i += CHUNK)
+                bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+            return btoa(bin);
+        }
+        function b64encodeUrl(str) {
+            return b64encodeUtf8(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        }
+        function safeDecode(s) {
+            try { return decodeURIComponent(s); } catch (e) { return s; }
+        }
+        function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        }
+
+        // ---- parsing ----
+        function parseVmess(rest) {
+            var obj = JSON.parse(b64decodeUtf8(rest));
+            if (typeof obj !== 'object' || obj === null) throw new Error('vmess 内容不是 JSON 对象');
+            obj._type = 'vmess';
+            return obj;
+        }
+
+        function parseTrojan(rest) {
+            var name = '', query = '';
+            var hashIdx = rest.indexOf('#');
+            if (hashIdx >= 0) { name = safeDecode(rest.slice(hashIdx + 1)); rest = rest.slice(0, hashIdx); }
+            var qIdx = rest.indexOf('?');
+            if (qIdx >= 0) { query = rest.slice(qIdx + 1); rest = rest.slice(0, qIdx); }
+            var at = rest.lastIndexOf('@');
+            if (at < 0) throw new Error('trojan 链接缺少 @');
+            var password = safeDecode(rest.slice(0, at));
+            var hostport = rest.slice(at + 1);
+            var ci = hostport.lastIndexOf(':');
+            if (ci < 0) throw new Error('trojan 链接缺少端口');
+            return { _type: 'trojan', password: password, host: hostport.slice(0, ci), port: hostport.slice(ci + 1), query: query, name: name };
+        }
+
+        function parseSS(rest) {
+            var name = '', query = '';
+            var hashIdx = rest.indexOf('#');
+            if (hashIdx >= 0) { name = safeDecode(rest.slice(hashIdx + 1)); rest = rest.slice(0, hashIdx); }
+            var qIdx = rest.indexOf('?');
+            if (qIdx >= 0) {
+                query = rest.slice(qIdx + 1);
+                rest = rest.slice(0, qIdx);
+                if (rest.endsWith('/')) rest = rest.slice(0, -1);
+            }
+            var at = rest.lastIndexOf('@');
+            if (at >= 0) {
+                var userinfo = rest.slice(0, at), hostport = rest.slice(at + 1);
+                var mp = userinfo.indexOf(':') >= 0 ? userinfo : b64decodeUtf8(userinfo);
+                var ci = mp.indexOf(':');
+                if (ci < 0) throw new Error('ss 链接缺少加密方法或密码');
+                var ci2 = hostport.lastIndexOf(':');
+                if (ci2 < 0) throw new Error('ss 链接缺少端口');
+                return { _type: 'ss', method: safeDecode(mp.slice(0, ci)), password: safeDecode(mp.slice(ci + 1)), host: hostport.slice(0, ci2), port: hostport.slice(ci2 + 1), query: query, name: name };
+            }
+            // 旧格式：ss://base64(method:password@host:port)
+            var dec = b64decodeUtf8(rest);
+            var at2 = dec.lastIndexOf('@');
+            var ci3 = dec.indexOf(':'), ci4 = dec.lastIndexOf(':');
+            if (at2 < 0 || ci3 < 0 || ci4 <= at2) throw new Error('无法识别的 ss 链接');
+            return { _type: 'ss', method: dec.slice(0, ci3), password: safeDecode(dec.slice(ci3 + 1, at2)), host: dec.slice(at2 + 1, ci4), port: dec.slice(ci4 + 1), query: query, name: name };
+        }
+
+        function parseSSR(rest) {
+            var dec = b64decodeUtf8(rest);
+            var main = dec, params = '';
+            var qIdx = dec.indexOf('/?');
+            if (qIdx >= 0) { main = dec.slice(0, qIdx); params = dec.slice(qIdx + 2); }
+            var parts = main.split(':');
+            if (parts.length < 6) throw new Error('ssr 链接字段不足');
+            var kv = {};
+            if (params) params.split('&').forEach(function (p) {
+                var i = p.indexOf('=');
+                if (i > 0) { try { kv[p.slice(0, i)] = b64decodeUtf8(p.slice(i + 1)); } catch (e) { kv[p.slice(0, i)] = safeDecode(p.slice(i + 1)); } }
+            });
+            return {
+                _type: 'ssr',
+                host: parts[0], port: parts[1], protocol: parts[2], method: parts[3], obfs: parts[4],
+                password: b64decodeUtf8(parts.slice(5).join(':')),
+                obfsparam: kv.obfsparam || '', protoparam: kv.protoparam || '',
+                name: kv.remarks || '', group: kv.group || ''
+            };
+        }
+
+        function parseLink(line) {
+            line = line.trim();
+            if (!line) return null;
+            if (line.indexOf('vmess://') === 0) return parseVmess(line.slice(8));
+            if (line.indexOf('trojan://') === 0) return parseTrojan(line.slice(9));
+            if (line.indexOf('ss://') === 0) return parseSS(line.slice(5));
+            if (line.indexOf('ssr://') === 0) return parseSSR(line.slice(6));
+            throw new Error('不支持的链接格式');
+        }
+
+        // ---- generating ----
+        function genLink(node) {
+            if (node._type === 'vmess') {
+                var obj = {};
+                for (var k in node.obj) if (k !== '_type') obj[k] = node.obj[k];
+                ['port', 'aid', 'v'].forEach(function (f) {
+                    if (obj[f] !== undefined && /^\d+$/.test(String(obj[f]))) obj[f] = Number(obj[f]);
+                });
+                return 'vmess://' + b64encodeUtf8(JSON.stringify(obj));
+            }
+            if (node._type === 'trojan') {
+                var q = node.query ? '?' + node.query : '';
+                var tag = node.name ? '#' + encodeURIComponent(node.name) : '';
+                return 'trojan://' + encodeURIComponent(node.password) + '@' + node.host + ':' + node.port + q + tag;
+            }
+            if (node._type === 'ss') {
+                var q2 = node.query ? '/?' + node.query : '';
+                var tag2 = node.name ? '#' + encodeURIComponent(node.name) : '';
+                return 'ss://' + b64encodeUrl(node.method + ':' + node.password) + '@' + node.host + ':' + node.port + q2 + tag2;
+            }
+            if (node._type === 'ssr') {
+                var kv = [];
+                if (node.obfsparam) kv.push('obfsparam=' + b64encodeUrl(node.obfsparam));
+                if (node.protoparam) kv.push('protoparam=' + b64encodeUrl(node.protoparam));
+                if (node.name) kv.push('remarks=' + b64encodeUrl(node.name));
+                if (node.group) kv.push('group=' + b64encodeUrl(node.group));
+                var body = [node.host, node.port, node.protocol, node.method, node.obfs, b64encodeUrl(node.password)].join(':');
+                return 'ssr://' + b64encodeUtf8(body + (kv.length ? '/?' + kv.join('&') : ''));
+            }
+            return '';
+        }
+
+        // ---- UI ----
+        var FIELD_MAP = {
+            vmess: [['ps', '名称'], ['add', '地址'], ['port', '端口'], ['id', 'ID'], ['aid', 'AlterId'], ['scy', '加密'], ['net', '传输'], ['type', '伪装'], ['host', 'Host'], ['path', '路径'], ['tls', 'TLS'], ['sni', 'SNI']],
+            trojan: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['password', '密码'], ['query', '参数 (query)']],
+            ss: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['method', '加密'], ['password', '密码'], ['query', '参数 (query)']],
+            ssr: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['protocol', '协议'], ['method', '加密'], ['obfs', '混淆'], ['password', '密码'], ['obfsparam', '混淆参数'], ['protoparam', '协议参数'], ['group', '分组']]
+        };
+
+        var nodes = [];
+
+        function nodeField(node, f) {
+            if (node._type === 'vmess') return node.obj[f] !== undefined ? String(node.obj[f]) : '';
+            return node[f] !== undefined ? String(node[f]) : '';
+        }
+
+        function renderNodes() {
+            $('nodes').innerHTML = nodes.map(function (node, i) {
+                var fields = FIELD_MAP[node._type] || [];
+                var title = node._type === 'vmess' ? (node.obj.ps || '') : (node.name || '');
+                return '<div class="panel node-card" data-i="' + i + '">' +
+                    '<div class="panel-header"><h3>' +
+                        '<span class="badge b-' + node._type + '">' + node._type + '</span>' +
+                        '<span class="card-title-text">' + esc(title) + '</span>' +
+                    '</h3>' +
+                    '<button class="btn-danger btn-sm" onclick="removeNode(' + i + ')">✕</button></div>' +
+                    '<div class="field-grid">' +
+                    fields.map(function (f) {
+                        return '<div class="field"><label>' + f[1] + ' <span style="color:#ccc">' + f[0] + '</span></label>' +
+                            '<input type="text" data-f="' + f[0] + '" value="' + esc(nodeField(node, f[0])) + '"></div>';
+                    }).join('') +
+                    '</div></div>';
+            }).join('');
+        }
+
+        // 事件委托：字段输入实时写回节点数据
+        $('nodes').addEventListener('input', function (e) {
+            var t = e.target;
+            if (!t.dataset || !t.dataset.f) return;
+            var card = t.closest('.node-card');
+            var node = nodes[+card.dataset.i];
+            if (node._type === 'vmess') node.obj[t.dataset.f] = t.value;
+            else node[t.dataset.f] = t.value;
+        });
+
+        function removeNode(i) {
+            nodes.splice(i, 1);
+            renderNodes();
+        }
+
+        function parseAll() {
+            var lines = $('input').value.split('\n');
+            nodes = [];
+            var errors = 0;
+            lines.forEach(function (line) {
+                if (!line.trim()) return;
+                try {
+                    var n = parseLink(line);
+                    if (n._type === 'vmess') nodes.push({ _type: 'vmess', obj: n });
+                    else nodes.push(n);
+                } catch (e) { errors++; }
+            });
+            renderNodes();
+            if (nodes.length === 0 && errors === 0) { showToast('请输入分享链接'); return; }
+            showToast('解析 ' + nodes.length + ' 个节点' + (errors ? '，' + errors + ' 行失败' : ''));
+        }
+
+        function generateAll() {
+            if (!nodes.length) { showToast('请先解析链接'); return; }
+            var links = nodes.map(genLink);
+            $('output').value = links.join('\n');
+            updateLineNumbers($('output'), $('outputLines'));
+            $('outputPanel').style.display = 'block';
+            showToast('已生成 ' + links.length + ' 条链接');
+        }
+
+        function copyOutput() {
+            var text = $('output').value;
+            if (!text) { showToast('没有可复制的内容'); return; }
+            navigator.clipboard.writeText(text).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        function clearAll() {
+            nodes = [];
+            $('input').value = '';
+            $('output').value = '';
+            $('nodes').innerHTML = '';
+            $('outputPanel').style.display = 'none';
+            updateLineNumbers($('input'), $('inputLines'));
+            updateLineNumbers($('output'), $('outputLines'));
+            updateSize('input', 'sizeBadge');
+        }
+
+        bindEditor('input', 'inputLines', 'sizeBadge');
+        bindEditor('output', 'outputLines');
+    </script>
+</body>
+</html>
