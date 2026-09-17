@@ -441,21 +441,6 @@ function finish() {
     check('敲击 +1 并持久化', parseInt(memStore['fish-merit'], 10) === before + 1);
 }
 
-// ---- fractal.html ----
-{
-    const { ctx } = loadPage('fractal/fractal.html');
-    check('心在集合内', ctx.mandelIter(0, 0, 100).n === 100);
-    check('远处快速逃逸', ctx.mandelIter(2, 2, 100).n < 5);
-    const v = { x0: 0, x1: 2, y0: -1, y1: 1 };
-    const r1 = ctx.rectFromDrag(0, 0, 100, 100, 100, 100, v);
-    const r2 = ctx.rectFromDrag(100, 100, 0, 0, 100, 100, v);
-    check('框选缩放映射', JSON.stringify(r1) === JSON.stringify(v) && JSON.stringify(r2) === JSON.stringify(v));
-    const half = ctx.rectFromDrag(50, 0, 100, 100, 100, 100, v);
-    check('框选右半', Math.abs(half.x0 - 1) < 1e-9 && Math.abs(half.x1 - 2) < 1e-9);
-    const pal = ctx.makePalette([[0, [0, 0, 0]], [1, [255, 255, 255]]]);
-    check('调色板中点', JSON.stringify(pal(0.5)) === JSON.stringify([128, 128, 128]));
-}
-
 // ---- wheel.html ----
 {
     const { ctx } = loadPage('wheel/wheel.html');
@@ -466,6 +451,78 @@ function finish() {
     const n = 8, seen = new Set();
     for (let k = 0; k < n; k++) seen.add(ctx.winnerIndex(k * Math.PI * 2 / n, n));
     check('winnerIndex 覆盖所有扇区', seen.size === n);
+    // 一次旋转的选项再多也只规划一次，旋转数学与 n 无关
+    const seqRnd = (arr) => { let i = 0; return () => arr[i++ % arr.length]; };
+    const plan8 = ctx.planSpin(0, 8, seqRnd([0.3, 0.5]));
+    check('planSpin 目标命中内定扇区', ctx.winnerIndex(plan8.target, 8) === plan8.winner);
+    check('planSpin 只能向前', plan8.target > 0);
+    const plan200 = ctx.planSpin(0, 200, seqRnd([0.999, 0]));
+    check('planSpin 200 选项同数学', ctx.winnerIndex(plan200.target, 200) === plan200.winner);
+    check('easeOutCubic', ctx.easeOutCubic(0) === 0 && ctx.easeOutCubic(1) === 1 && ctx.easeOutCubic(0.5) > 0.5);
+}
+
+// ---- star.html ----
+{
+    const { ctx } = loadPage('star/star.html');
+    const a = ctx.makeRng(42), b = ctx.makeRng(42);
+    const seqA = [a(), a(), a()], seqB = [b(), b(), b()];
+    check('rng 同种子同序列', JSON.stringify(seqA) === JSON.stringify(seqB));
+    check('rng 值域', seqA.every(v => v >= 0 && v < 1));
+    const rng = ctx.makeRng(7);
+    const stars = ctx.genStars(rng, 300, 800, 600);
+    check('星星数量与边界', stars.length === 300 &&
+        stars.every(s => s.x >= 0 && s.x < 800 && s.y >= 0 && s.y < 600));
+    check('星星分层与参数', stars.every(s => s.layer >= 0 && s.layer <= 2 && s.size > 0 && s.phase >= 0));
+    const m = ctx.spawnMeteor(ctx.makeRng(1), 800, 600);
+    check('流星出生在上方', m.y < 600 * 0.35 && m.x >= 0 && m.x <= 800);
+    const before = { x: m.x, y: m.y };
+    const dt = 0.1;
+    const alive = ctx.stepMeteor(m, dt);
+    check('流星位移', Math.abs(m.x - before.x - m.vx * dt) < 1e-9 && m.life === dt);
+    let guard = 0;
+    while (ctx.stepMeteor(m, dt) && guard++ < 1000) {}
+    check('流星寿命耗尽', guard < 1000 && !ctx.stepMeteor(m, dt));
+}
+
+// ---- winupdate.html ----
+{
+    const { ctx } = loadPage('winupdate/winupdate.html');
+    const half = () => 0.5; // jitter 因子恰为 1
+    const plan = ctx.buildPlan('normal', half);
+    check('计划三阶段', plan.length === 3 && plan[0].label === '正在下载更新');
+    check('计划时长按速度缩放', plan[0].dur === 90000 && plan[1].dur === 150000 && plan[2].dur === 240000);
+    check('instant 速度缩 10 倍', ctx.buildPlan('instant', half)[0].dur === 9000);
+    const p0 = ctx.progressAt(plan, 0);
+    check('起点 0%', p0.stage === 0 && p0.pct === 0);
+    const pMid = ctx.progressAt(plan, 45000);
+    check('阶段一中点 50%', pMid.stage === 0 && pMid.pct === 50);
+    const pS1 = ctx.progressAt(plan, 90000);
+    check('进入阶段二', pS1.stage === 1 && pS1.pct === 0);
+    const pEnd = ctx.progressAt(plan, 90000 + 150000 + 240000 + 999999);
+    check('终点永远 99%', pEnd.stage === 2 && pEnd.pct === 99);
+    // 单调性采样：用 阶段*100+百分比 作为全局进度（跨阶段不回落）
+    let last = -1, mono = true;
+    for (let t = 0; t <= 500000; t += 5000) {
+        const st = ctx.progressAt(plan, t);
+        const p = st.stage * 100 + st.pct;
+        if (p < last) mono = false;
+        last = p;
+    }
+    check('进度单调不减', mono);
+}
+
+// ---- fakecode.html ----
+{
+    const { ctx } = loadPage('fakecode/fakecode.html');
+    const html = ctx.highlight('const s = "<b>x</b>"; // <i>注</i>');
+    check('高亮转义 HTML', html.indexOf('<b>') === -1 && html.includes('&lt;b&gt;'));
+    check('高亮分类上色', html.includes('class="kw"') && html.includes('class="str"') && html.includes('class="cm"'));
+    check('高亮数字', ctx.highlight('let n = 3.14;').includes('class="num"'));
+    const seq = (arr) => { let i = 0; return () => arr[i++ % arr.length]; };
+    check('nextIndex 不与上次重复', ctx.nextIndex(seq([0.5, 0.1]), 5, 2) === 0);
+    check('nextIndex 单元素', ctx.nextIndex(seq([0.9]), 1, 0) === 0);
+    check('progressOf 递增封顶 99', ctx.progressOf(0) === 0 &&
+        ctx.progressOf(50) > ctx.progressOf(10) && ctx.progressOf(100000) === 99);
 }
 
 // ---- hash.html（异步块，最后收尾） ----

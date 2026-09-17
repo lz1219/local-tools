@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>星空图</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        html, body { height: 100%; overflow: hidden; background: #04060f; }
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; }
+        #sky { position: fixed; inset: 0; display: block; cursor: crosshair; }
+
+        .sky-title {
+            position: fixed; top: 34px; left: 0; right: 0; text-align: center;
+            pointer-events: none; user-select: none; z-index: 3;
+        }
+        .sky-title h1 {
+            margin: 0; font-size: 30px; font-weight: 300; letter-spacing: 14px;
+            color: rgba(235, 240, 255, 0.92); text-indent: 14px;
+            text-shadow: 0 0 24px rgba(120, 160, 255, 0.55);
+        }
+        .sky-title p {
+            margin: 10px 0 0; font-size: 12px; letter-spacing: 5px;
+            color: rgba(180, 195, 230, 0.5);
+        }
+        .sky-hint {
+            position: fixed; bottom: 26px; left: 0; right: 0; text-align: center;
+            font-size: 12px; letter-spacing: 3px; color: rgba(170, 185, 220, 0.42);
+            pointer-events: none; user-select: none; z-index: 3;
+            animation: hint-breathe 4s ease-in-out infinite;
+        }
+        @keyframes hint-breathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+        .sky-panel {
+            position: fixed; top: 24px; right: 24px; z-index: 4; width: 232px;
+            background: rgba(13, 18, 34, 0.62); border: 1px solid rgba(120, 150, 220, 0.18);
+            border-radius: 12px; padding: 14px 16px; backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+            transition: transform 0.25s ease, opacity 0.25s ease;
+        }
+        .sky-panel.hidden { transform: translateX(120%); opacity: 0; pointer-events: none; }
+        .sky-panel .row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+        .sky-panel .row label {
+            flex-shrink: 0; width: 60px; font-size: 12px; color: rgba(190, 205, 240, 0.75);
+        }
+        .sky-panel input[type="range"] {
+            flex: 1; height: 3px; accent-color: #7fa6ff; cursor: pointer;
+        }
+        .sky-panel .val {
+            width: 34px; text-align: right; font-size: 11px;
+            color: rgba(150, 170, 215, 0.7); font-variant-numeric: tabular-nums;
+        }
+        .sky-panel .switch-row { display: flex; align-items: center; justify-content: space-between; margin: 10px 0; }
+        .sky-panel .switch-row span { font-size: 12px; color: rgba(190, 205, 240, 0.75); }
+        .sky-panel .switch {
+            position: relative; width: 36px; height: 20px; border-radius: 10px;
+            background: rgba(255, 255, 255, 0.12); cursor: pointer; transition: background 0.2s;
+        }
+        .sky-panel .switch::after {
+            content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+            border-radius: 50%; background: #aab6d4; transition: transform 0.2s, background 0.2s;
+        }
+        .sky-panel .switch.on { background: rgba(110, 150, 255, 0.55); }
+        .sky-panel .switch.on::after { transform: translateX(16px); background: #eef2ff; }
+        .sky-panel .btns { display: flex; gap: 8px; margin-top: 12px; }
+        .sky-panel .btns button {
+            flex: 1; padding: 6px 0; font-size: 12px; border-radius: 8px;
+            border: 1px solid rgba(130, 160, 230, 0.3); background: rgba(90, 120, 200, 0.12);
+            color: rgba(210, 222, 250, 0.9); cursor: pointer; transition: background 0.15s;
+        }
+        .sky-panel .btns button:hover { background: rgba(110, 145, 235, 0.28); }
+        .panel-toggle {
+            position: fixed; top: 24px; right: 24px; z-index: 5; width: 34px; height: 34px;
+            border-radius: 50%; border: 1px solid rgba(120, 150, 220, 0.25);
+            background: rgba(13, 18, 34, 0.62); color: rgba(200, 214, 248, 0.85);
+            font-size: 15px; cursor: pointer; backdrop-filter: blur(8px);
+            display: none; align-items: center; justify-content: center;
+        }
+        .panel-toggle.show { display: flex; }
+        .wish-count {
+            position: fixed; bottom: 26px; right: 28px; z-index: 3;
+            font-size: 11px; letter-spacing: 2px; color: rgba(170, 185, 220, 0.4);
+            user-select: none; pointer-events: none; font-variant-numeric: tabular-nums;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="sky"></canvas>
+
+    <div class="sky-title">
+        <h1>星 空</h1>
+        <p>STARRY NIGHT · 点击任意处许愿</p>
+    </div>
+
+    <div class="sky-hint">移动鼠标环顾 · 点击任意处许愿 · 流星会听见</div>
+    <div class="wish-count" id="wishCount"></div>
+
+    <div class="sky-panel" id="panel">
+        <div class="row">
+            <label>星星密度</label>
+            <input type="range" id="density" min="100" max="900" step="50" value="450">
+            <span class="val" id="densityVal">450</span>
+        </div>
+        <div class="row">
+            <label>闪烁速度</label>
+            <input type="range" id="twinkle" min="0" max="30" step="1" value="10">
+            <span class="val" id="twinkleVal">10</span>
+        </div>
+        <div class="row">
+            <label>流星频率</label>
+            <input type="range" id="meteor" min="0" max="10" step="1" value="3">
+            <span class="val" id="meteorVal">3</span>
+        </div>
+        <div class="switch-row">
+            <span>鼠标视差</span>
+            <div class="switch on" id="parallaxSwitch" role="switch" aria-checked="true"></div>
+        </div>
+        <div class="switch-row">
+            <span>星云背景</span>
+            <div class="switch on" id="nebulaSwitch" role="switch" aria-checked="true"></div>
+        </div>
+        <div class="btns">
+            <button id="reGen">换一片星空</button>
+            <button id="fullBtn">全屏</button>
+        </div>
+    </div>
+    <button class="panel-toggle" id="panelToggle" title="设置">✦</button>
+
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        // ---- 可测的纯函数 ----
+
+        // mulberry32 确定性随机源
+        function makeRng(seed) {
+            var a = seed >>> 0;
+            return function () {
+                a |= 0; a = (a + 0x6D2B79F5) | 0;
+                var t = Math.imul(a ^ (a >>> 15), 1 | a);
+                t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+
+        // 生成三层视差的星星：layer 0 远（小暗密）→ 2 近（大亮疏）
+        function genStars(rng, count, w, h) {
+            var stars = [];
+            for (var i = 0; i < count; i++) {
+                var r = rng();
+                var layer = r < 0.55 ? 0 : (r < 0.85 ? 1 : 2);
+                stars.push({
+                    x: rng() * w,
+                    y: rng() * h,
+                    layer: layer,
+                    size: layer === 0 ? 0.4 + rng() * 0.7 : layer === 1 ? 0.9 + rng() * 1.0 : 1.6 + rng() * 1.6,
+                    bright: 0.35 + rng() * 0.65,
+                    phase: rng() * Math.PI * 2,
+                    speed: 0.5 + rng() * 1.5,
+                    warm: rng() < 0.18 // 少量暖色星
+                });
+            }
+            return stars;
+        }
+
+        // 流星初始状态：从上方区域斜向划过
+        function spawnMeteor(rng, w, h) {
+            var fromLeft = rng() < 0.5;
+            var speed = 520 + rng() * 460; // 像素/秒
+            var angle = (35 + rng() * 20) * Math.PI / 180;
+            return {
+                x: fromLeft ? rng() * w * 0.6 : w * (0.4 + rng() * 0.6),
+                y: rng() * h * 0.35,
+                vx: (fromLeft ? 1 : -1) * Math.cos(angle) * speed,
+                vy: Math.sin(angle) * speed,
+                ttl: 0.9 + rng() * 0.7,
+                life: 0
+            };
+        }
+
+        // 推进流星一帧，返回是否仍存活
+        function stepMeteor(m, dt) {
+            m.x += m.vx * dt;
+            m.y += m.vy * dt;
+            m.life += dt;
+            return m.life < m.ttl;
+        }
+
+        // ---- 渲染与交互 ----
+        var canvas, ctx, W = 0, H = 0;
+        var stars = [], meteors = [];
+        var nebulaLayer = null;
+        var spriteCache = {};
+        var mouseX = 0, mouseY = 0;      // -1 ~ 1
+        var parallaxOn = true, nebulaOn = true;
+        var twinkleSpeed = 10, meteorRate = 3;
+        var meteorTimer = 0, wishCount = 0, elapsed = 0;
+        var reduced = false;
+
+        var LAYER_PARALLAX = [12, 26, 46]; // 每层位移幅度（像素）
+
+        function starSprite(size, warm) {
+            var key = size.toFixed(1) + (warm ? 'w' : 'c');
+            if (spriteCache[key]) return spriteCache[key];
+            var pad = 6;
+            var c = document.createElement('canvas');
+            c.width = c.height = Math.ceil((size + pad) * 2);
+            var g = c.getContext('2d');
+            var cx = c.width / 2, cy = c.height / 2;
+            var core = warm ? '255, 244, 224' : '228, 238, 255';
+                var halo = warm ? '255, 214, 150' : '150, 180, 255';
+            var grad = g.createRadialGradient(cx, cy, 0, cx, cy, size + pad);
+            grad.addColorStop(0, 'rgba(' + core + ', 1)');
+            grad.addColorStop(Math.min(0.55, size / (size + pad)), 'rgba(' + core + ', 0.85)');
+            grad.addColorStop(0.72, 'rgba(' + halo + ', 0.22)');
+            grad.addColorStop(1, 'rgba(' + halo + ', 0)');
+            g.fillStyle = grad;
+            g.fillRect(0, 0, c.width, c.height);
+            spriteCache[key] = c;
+            return c;
+        }
+
+        function renderNebula(w, h) {
+            var c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            var g = c.getContext('2d');
+            var blobs = [
+                { x: 0.22, y: 0.28, r: 0.5, col: 'rgba(64, 84, 160, 0.20)' },
+                { x: 0.75, y: 0.18, r: 0.42, col: 'rgba(120, 70, 150, 0.14)' },
+                { x: 0.6, y: 0.78, r: 0.55, col: 'rgba(40, 90, 140, 0.16)' },
+                { x: 0.12, y: 0.85, r: 0.4, col: 'rgba(90, 60, 130, 0.12)' }
+            ];
+            blobs.forEach(function (b) {
+                var bx = b.x * w, by = b.y * h, br = b.r * Math.max(w, h);
+                var grad = g.createRadialGradient(bx, by, 0, bx, by, br);
+                grad.addColorStop(0, b.col);
+                grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                g.fillStyle = grad;
+                g.fillRect(bx - br, by - br, br * 2, br * 2);
+            });
+            return c;
+        }
+
+        function resize() {
+            W = canvas.width = window.innerWidth;
+            H = canvas.height = window.innerHeight;
+            nebulaLayer = renderNebula(W, H);
+            buildSky();
+        }
+
+        function buildSky() {
+            var seed = (Math.random() * 4294967296) >>> 0;
+            stars = genStars(makeRng(seed), currentDensity(), W, H);
+        }
+
+        function currentDensity() {
+            var el = typeof $ === 'function' ? $('density') : null;
+            return el ? +el.value : 450;
+        }
+
+        function drawSky(dt) {
+            // 深邃底色
+            var bg = ctx.createLinearGradient(0, 0, 0, H);
+            bg.addColorStop(0, '#050814');
+            bg.addColorStop(0.55, '#070a18');
+            bg.addColorStop(1, '#040510');
+            ctx.fillStyle = bg;
+            ctx.fillRect(0, 0, W, H);
+
+            // 银河光带：斜向宽渐变，慢慢呼吸
+            ctx.save();
+            ctx.translate(W / 2, H / 2);
+            ctx.rotate(-0.42);
+            var bandAlpha = 0.085 + Math.sin(elapsed * 0.13) * 0.02;
+            var band = ctx.createLinearGradient(0, -H * 0.45, 0, H * 0.45);
+            band.addColorStop(0, 'rgba(140, 160, 230, 0)');
+            band.addColorStop(0.5, 'rgba(170, 188, 240, ' + bandAlpha + ')');
+            band.addColorStop(1, 'rgba(140, 160, 230, 0)');
+            ctx.fillStyle = band;
+            ctx.fillRect(-W, -H * 0.5, W * 2, H);
+            ctx.restore();
+
+            if (nebulaOn) {
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.globalAlpha = 0.9 + Math.sin(elapsed * 0.07) * 0.1;
+                ctx.drawImage(nebulaLayer,
+                    Math.sin(elapsed * 0.021) * 18 - 20, Math.cos(elapsed * 0.017) * 14 - 20,
+                    W + 40, H + 40);
+                ctx.restore();
+            }
+
+            // 星星：三层视差 + 各自闪烁
+            var px = parallaxOn ? mouseX : 0, py = parallaxOn ? mouseY : 0;
+            var ts = twinkleSpeed * (reduced ? 0.35 : 1);
+            for (var i = 0; i < stars.length; i++) {
+                var s = stars[i];
+                var tw = 0.62 + 0.38 * Math.sin(s.phase + elapsed * s.speed * (ts / 10));
+                var a = s.bright * tw;
+                if (a <= 0.02) continue;
+                var ox = px * LAYER_PARALLAX[s.layer];
+                var oy = py * LAYER_PARALLAX[s.layer];
+                var size = s.size * (0.85 + 0.3 * tw);
+                var spr = starSprite(Math.round(size * 2) / 2, s.warm);
+                ctx.globalAlpha = Math.min(1, a);
+                var hw = spr.width / 2;
+                ctx.drawImage(spr, s.x + ox - hw, s.y + oy - hw);
+            }
+            ctx.globalAlpha = 1;
+
+            // 流星（加色混合拖尾）
+            for (var j = meteors.length - 1; j >= 0; j--) {
+                var m = meteors[j];
+                if (!stepMeteor(m, dt)) { meteors.splice(j, 1); continue; }
+                var k = 1 - m.life / m.ttl;
+                var tail = 90 + Math.hypot(m.vx, m.vy) * 0.09;
+                var nx = m.vx / Math.hypot(m.vx, m.vy), ny = m.vy / Math.hypot(m.vx, m.vy);
+                var gx = m.x - nx * tail, gy = m.y - ny * tail;
+                var grad = ctx.createLinearGradient(m.x, m.y, gx, gy);
+                grad.addColorStop(0, 'rgba(255, 255, 255, ' + (0.95 * k) + ')');
+                grad.addColorStop(0.25, 'rgba(190, 210, 255, ' + (0.5 * k) + ')');
+                grad.addColorStop(1, 'rgba(150, 180, 255, 0)');
+                ctx.save();
+                ctx.globalCompositeOperation = 'lighter';
+                ctx.strokeStyle = grad;
+                ctx.lineWidth = 1.6 + k;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(m.x, m.y);
+                ctx.lineTo(gx, gy);
+                ctx.stroke();
+                ctx.fillStyle = 'rgba(255, 255, 255, ' + (0.9 * k) + ')';
+                ctx.beginPath();
+                ctx.arc(m.x, m.y, 1.6 + k, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        var lastT = 0;
+        function frame(now) {
+            if (!lastT) lastT = now;
+            var dt = Math.min(0.05, (now - lastT) / 1000);
+            lastT = now;
+            elapsed += dt;
+
+            // 按频率自动生成流星
+            if (meteorRate > 0) {
+                meteorTimer -= dt;
+                if (meteorTimer <= 0) {
+                    meteors.push(spawnMeteor(Math.random, W, H));
+                    meteorTimer = (11 - meteorRate) * (1.2 + Math.random() * 1.8);
+                }
+            }
+            drawSky(dt);
+            requestAnimationFrame(frame);
+        }
+
+        function wish(x, y) {
+            // 从点击处反向起一条流星，像愿望划过
+            var rng = Math.random;
+            var m = spawnMeteor(rng, W, H);
+            m.x = x; m.y = y;
+            var dir = rng() * Math.PI * 2;
+            var sp = 480 + rng() * 320;
+            m.vx = Math.cos(dir) * sp;
+            m.vy = Math.abs(Math.sin(dir)) * sp * 0.6;
+            meteors.push(m);
+            wishCount++;
+            var wc = $('wishCount');
+            if (wc) wc.textContent = '已许愿 ' + wishCount + ' 次';
+        }
+
+        function bindUI() {
+            var panel = $('panel'), toggle = $('panelToggle');
+            toggle.addEventListener('click', function () {
+                panel.classList.remove('hidden');
+                toggle.classList.remove('show');
+            });
+            $('fullBtn').addEventListener('click', function () {
+                if (document.fullscreenElement) document.exitFullscreen();
+                else document.documentElement.requestFullscreen().catch(function () { showToast('浏览器拒绝了全屏请求'); });
+            });
+            $('reGen').addEventListener('click', function () {
+                buildSky();
+                showToast('已换一片星空');
+            });
+
+            [['density', 'densityVal'], ['twinkle', 'twinkleVal'], ['meteor', 'meteorVal']].forEach(function (pair) {
+                var input = $(pair[0]), val = $(pair[1]);
+                input.addEventListener('input', function () {
+                    val.textContent = input.value;
+                    if (pair[0] === 'density') buildSky();
+                    if (pair[0] === 'twinkle') twinkleSpeed = +input.value;
+                    if (pair[0] === 'meteor') meteorRate = +input.value;
+                });
+            });
+            twinkleSpeed = +$('twinkle').value;
+            meteorRate = +$('meteor').value;
+
+            [['parallaxSwitch', function (on) { parallaxOn = on; }],
+             ['nebulaSwitch', function (on) { nebulaOn = on; }]].forEach(function (pair) {
+                var sw = $(pair[0]);
+                sw.addEventListener('click', function () {
+                    var on = !sw.classList.contains('on');
+                    sw.classList.toggle('on', on);
+                    sw.setAttribute('aria-checked', on ? 'true' : 'false');
+                    pair[1](on);
+                });
+            });
+
+            window.addEventListener('mousemove', function (e) {
+                mouseX = (e.clientX / W) * 2 - 1;
+                mouseY = (e.clientY / H) * 2 - 1;
+            });
+            canvas.addEventListener('click', function (e) { wish(e.clientX, e.clientY); });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') {
+                    panel.classList.add('hidden');
+                    toggle.classList.add('show');
+                }
+            });
+        }
+
+        function init() {
+            canvas = $('sky');
+            ctx = canvas.getContext('2d');
+            reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            resize();
+            bindUI();
+            window.addEventListener('resize', resize);
+            requestAnimationFrame(frame);
+        }
+
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener('load', init);
+        }
+    </script>
+</body>
+</html>

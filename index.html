@@ -15,7 +15,17 @@
         }
         .container { max-width: 960px; margin: 0 auto; }
         h1 { text-align: center; color: #2c3e50; margin-bottom: 8px; font-size: 26px; }
-        .subtitle { text-align: center; color: #999; margin-bottom: 32px; font-size: 13px; }
+        .subtitle { text-align: center; color: #999; margin-bottom: 10px; font-size: 13px; }
+        .open-hint { text-align: center; color: #bbb; margin-bottom: 24px; font-size: 12px; }
+
+        .group-title {
+            display: flex; align-items: center; gap: 10px;
+            margin: 28px 0 14px; font-size: 15px; font-weight: 600; color: #2c3e50;
+        }
+        .group-title::before {
+            content: ''; width: 4px; height: 16px; border-radius: 2px; background: #4a9eff;
+        }
+        .group-title small { font-weight: 400; color: #aaa; font-size: 12px; }
 
         .grid {
             display: grid;
@@ -49,12 +59,11 @@
         .badge-blue { background: #e3f2fd; color: #1565c0; }
         .badge-green { background: #e8f5e9; color: #2e7d32; }
         .badge-orange { background: #fff3e0; color: #ef6c00; }
-        .badge-gray { background: #f0f2f5; color: #888; }
+        .badge-purple { background: #f3e8fd; color: #7b1fa2; }
         .card-desc { font-size: 13px; color: #888; line-height: 1.6; }
-        .card.coming { opacity: 0.75; }
 
         .footer {
-            margin-top: 32px;
+            margin-top: 36px;
             text-align: center;
             font-size: 12px;
             color: #aaa;
@@ -65,9 +74,11 @@
     <div class="container">
         <h1>本地工具箱</h1>
         <p class="subtitle">纯前端 · 无需联网 · 数据不出本机</p>
+        <p class="open-hint">卡片均在新窗口打开，可并排使用多个工具</p>
 
+        <div class="group-title">开发工具<small>日常编码刚需</small></div>
         <div class="grid">
-            <a class="card" href="json-tools/json.html">
+            <a class="card" href="json-tools/json.html" target="_blank" rel="noopener">
                 <div class="card-header">
                     <span class="card-title">JSON 序列化工具</span>
                     <span class="badge badge-blue">JSON</span>
@@ -75,63 +86,7 @@
                 <p class="card-desc">格式化 / 压缩 / 校验 / 转义 / 反转义，支持折叠树形浏览与自定义缩进。</p>
             </a>
 
-            <a class="card" href="str/replace.html">
-                <div class="card-header">
-                    <span class="card-title">字符串替换工具</span>
-                    <span class="badge badge-green">文本</span>
-                </div>
-                <p class="card-desc">多条规则顺序替换，支持自定义添加/删除规则，带行号编辑器。</p>
-            </a>
-
-            <a class="card" href="encode/encode.html">
-                <div class="card-header">
-                    <span class="card-title">Base64 / URL 编解码</span>
-                    <span class="badge badge-orange">编码</span>
-                </div>
-                <p class="card-desc">Base64 与 URL 百分号编码的双向转换，支持中文。</p>
-            </a>
-
-            <a class="card" href="node/node.html">
-                <div class="card-header">
-                    <span class="card-title">节点链接解析</span>
-                    <span class="badge badge-blue">网络</span>
-                </div>
-                <p class="card-desc">解析 vmess / trojan / ss / ssr 分享链接，编辑地址端口后重新生成。</p>
-            </a>
-
-            <a class="card" href="diff/diff.html">
-                <div class="card-header">
-                    <span class="card-title">文本对比 Diff</span>
-                    <span class="badge badge-green">文本</span>
-                </div>
-                <p class="card-desc">两段文本逐行对比，高亮增删行，统计差异数量。</p>
-            </a>
-
-            <a class="card" href="time/time.html">
-                <div class="card-header">
-                    <span class="card-title">时间戳转换</span>
-                    <span class="badge badge-orange">时间</span>
-                </div>
-                <p class="card-desc">Unix 时间戳与日期时间互转，秒/毫秒自动识别，实时时钟。</p>
-            </a>
-
-            <a class="card" href="img/img.html">
-                <div class="card-header">
-                    <span class="card-title">图片处理</span>
-                    <span class="badge badge-orange">图片</span>
-                </div>
-                <p class="card-desc">本地压缩、缩放、格式转换，支持拖拽与 Ctrl+V 粘贴截图。</p>
-            </a>
-
-            <a class="card" href="table/table.html">
-                <div class="card-header">
-                    <span class="card-title">Markdown 表格 ↔ CSV</span>
-                    <span class="badge badge-green">文本</span>
-                </div>
-                <p class="card-desc">Markdown 表格与 CSV/TSV 互转，自动识别方向，支持转义与引号字段。</p>
-            </a>
-
-            <a class="card" href="regex/regex.html">
+            <a class="card" href="regex/regex.html" target="_blank" rel="noopener">
                 <div class="card-header">
                     <span class="card-title">正则测试器</span>
                     <span class="badge badge-blue">开发</span>
@@ -139,23 +94,7 @@
                 <p class="card-desc">实时匹配高亮、分组捕获展示、替换预览、常用正则速查点击填入。</p>
             </a>
 
-            <a class="card" href="text/text.html">
-                <div class="card-header">
-                    <span class="card-title">文本工具箱</span>
-                    <span class="badge badge-green">文本</span>
-                </div>
-                <p class="card-desc">字数统计、大小写转换（含 camel/snake/kebab）、行处理、全半角互转。</p>
-            </a>
-
-            <a class="card" href="gen/gen.html">
-                <div class="card-header">
-                    <span class="card-title">随机生成器</span>
-                    <span class="badge badge-blue">生成</span>
-                </div>
-                <p class="card-desc">UUID v4、随机密码（字符集保证 + 熵强度提示）、批量随机数字与端口。</p>
-            </a>
-
-            <a class="card" href="jwt/jwt.html">
+            <a class="card" href="jwt/jwt.html" target="_blank" rel="noopener">
                 <div class="card-header">
                     <span class="card-title">JWT 解析</span>
                     <span class="badge badge-blue">开发</span>
@@ -163,7 +102,7 @@
                 <p class="card-desc">解码 Header / Payload，展示签发时间、过期时间与剩余有效期提醒。</p>
             </a>
 
-            <a class="card" href="hash/hash.html">
+            <a class="card" href="hash/hash.html" target="_blank" rel="noopener">
                 <div class="card-header">
                     <span class="card-title">哈希计算</span>
                     <span class="badge badge-orange">加密</span>
@@ -171,15 +110,102 @@
                 <p class="card-desc">MD5 / SHA-1 / SHA-256 / SHA-512，支持文本与本地文件，大小写切换。</p>
             </a>
 
-            <a class="card" href="color/color.html">
+            <a class="card" href="time/time.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">时间戳转换</span>
+                    <span class="badge badge-orange">时间</span>
+                </div>
+                <p class="card-desc">Unix 时间戳与日期时间互转，秒/毫秒自动识别，实时时钟。</p>
+            </a>
+        </div>
+
+        <div class="group-title">文本处理<small>复制粘贴之间的那些事</small></div>
+        <div class="grid">
+            <a class="card" href="str/replace.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">字符串替换工具</span>
+                    <span class="badge badge-green">文本</span>
+                </div>
+                <p class="card-desc">多条规则顺序替换，支持自定义添加/删除规则，带行号编辑器。</p>
+            </a>
+
+            <a class="card" href="diff/diff.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">文本对比 Diff</span>
+                    <span class="badge badge-green">文本</span>
+                </div>
+                <p class="card-desc">两段文本逐行对比，高亮增删行，统计差异数量。</p>
+            </a>
+
+            <a class="card" href="table/table.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">Markdown 表格 ↔ CSV</span>
+                    <span class="badge badge-green">文本</span>
+                </div>
+                <p class="card-desc">Markdown 表格与 CSV/TSV 互转，自动识别方向，支持转义与引号字段。</p>
+            </a>
+
+            <a class="card" href="text/text.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">文本工具箱</span>
+                    <span class="badge badge-green">文本</span>
+                </div>
+                <p class="card-desc">字数统计、大小写转换（含 camel/snake/kebab）、行处理、全半角互转。</p>
+            </a>
+        </div>
+
+        <div class="group-title">编码与网络<small>小链接大世界</small></div>
+        <div class="grid">
+            <a class="card" href="encode/encode.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">Base64 / URL 编解码</span>
+                    <span class="badge badge-orange">编码</span>
+                </div>
+                <p class="card-desc">Base64 与 URL 百分号编码的双向转换，支持中文。</p>
+            </a>
+
+            <a class="card" href="node/node.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">节点链接解析</span>
+                    <span class="badge badge-blue">网络</span>
+                </div>
+                <p class="card-desc">解析 vmess / trojan / ss / ssr 分享链接，编辑地址端口后重新生成。</p>
+            </a>
+        </div>
+
+        <div class="group-title">图片与设计<small>像素和颜色的事</small></div>
+        <div class="grid">
+            <a class="card" href="img/img.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">图片处理</span>
+                    <span class="badge badge-orange">图片</span>
+                </div>
+                <p class="card-desc">本地压缩、缩放、格式转换，支持拖拽与 Ctrl+V 粘贴截图。</p>
+            </a>
+
+            <a class="card" href="color/color.html" target="_blank" rel="noopener">
                 <div class="card-header">
                     <span class="card-title">颜色工具</span>
                     <span class="badge badge-orange">设计</span>
                 </div>
                 <p class="card-desc">HEX / RGB / HSL 互转，配色板、随机色、前景背景对比度 WCAG 检测。</p>
             </a>
+        </div>
 
-            <a class="card" href="fish/fish.html">
+        <div class="group-title">效率生成<small>要啥随机给啥</small></div>
+        <div class="grid">
+            <a class="card" href="gen/gen.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">随机生成器</span>
+                    <span class="badge badge-blue">生成</span>
+                </div>
+                <p class="card-desc">UUID v4、随机密码（字符集保证 + 熵强度提示）、批量随机数字与端口。</p>
+            </a>
+        </div>
+
+        <div class="group-title">趣味乐园<small>摸鱼与整蛊专区</small></div>
+        <div class="grid">
+            <a class="card" href="fish/fish.html" target="_blank" rel="noopener">
                 <div class="card-header">
                     <span class="card-title">电子木鱼</span>
                     <span class="badge badge-orange">趣味</span>
@@ -187,24 +213,40 @@
                 <p class="card-desc">敲一敲攒功德：连击计数、自动模式、静音开关，功德数本地持久化。</p>
             </a>
 
-            <a class="card" href="fractal/fractal.html">
+            <a class="card" href="star/star.html" target="_blank" rel="noopener">
                 <div class="card-header">
-                    <span class="card-title">曼德博分形</span>
-                    <span class="badge badge-orange">趣味</span>
+                    <span class="card-title">星空图</span>
+                    <span class="badge badge-purple">沉浸</span>
                 </div>
-                <p class="card-desc">纯 Canvas 渲染曼德博集合，鼠标拖拽框选缩放，四种渐变调色板。</p>
+                <p class="card-desc">三层视差星空 + 银河光带 + 星云，点击任意处许愿召唤流星。</p>
             </a>
 
-            <a class="card" href="wheel/wheel.html">
+            <a class="card" href="wheel/wheel.html" target="_blank" rel="noopener">
                 <div class="card-header">
                     <span class="card-title">幸运转盘</span>
                     <span class="badge badge-orange">趣味</span>
                 </div>
-                <p class="card-desc">自定义选项的抽签转盘，旋转动画 + 音效，中奖后可移除或打乱选项。</p>
+                <p class="card-desc">自定义选项抽签转盘，旋转动画 + 音效，中奖后可移除或打乱选项。</p>
+            </a>
+
+            <a class="card" href="winupdate/winupdate.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">假装 Windows 更新</span>
+                    <span class="badge badge-purple">整蛊</span>
+                </div>
+                <p class="card-desc">全屏拟真更新画面，Win10/Win11 双风格，第三阶段永远差 1%。</p>
+            </a>
+
+            <a class="card" href="fakecode/fakecode.html" target="_blank" rel="noopener">
+                <div class="card-header">
+                    <span class="card-title">假装写代码</span>
+                    <span class="badge badge-purple">整蛊</span>
+                </div>
+                <p class="card-desc">随便敲键盘就像在大厂拼命写代码，四种主题 + 自动播放模式。</p>
             </a>
         </div>
 
-        <p class="footer">新工具直接添加卡片链接即可 · 全部工具统一浅色主题</p>
+        <p class="footer">新工具直接添加卡片链接即可 · 全部工具统一浅色主题（星空除外）</p>
     </div>
 </body>
 </html>

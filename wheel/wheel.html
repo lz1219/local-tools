@@ -73,6 +73,9 @@
         var spinning = false;
         var segments = [];
         var audioCtx = null;
+        var staticCanvas = null;    // 静态盘面离屏缓存，选项不变时每帧只贴一张图
+        var staticDirty = true;
+        var dpr = 1;
 
         function buildSegments(text) {
             var lines = text.split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
@@ -91,49 +94,85 @@
             return Math.floor(a / seg) % n;
         }
 
+        function easeOutCubic(p) { return 1 - Math.pow(1 - p, 3); }
+
+        // 规划一次旋转：rnd 可注入随机源，返回目标角度与内定中奖扇区
+        function planSpin(currentRot, n, rnd) {
+            rnd = rnd || Math.random;
+            var seg = Math.PI * 2 / n;
+            var targetWinner = Math.floor(rnd() * n);
+            var base = -Math.PI / 2 - (targetWinner + 0.5) * seg;
+            var turns = 6 + Math.floor(rnd() * 3);
+            var target = base + turns * Math.PI * 2;
+            while (target <= currentRot) target += Math.PI * 2;
+            return { target: target, winner: targetWinner };
+        }
+
+        // 静态盘面只重画一次；标签用描边代替阴影，避免逐段 shadowBlur 拖垮帧率
+        function renderStatic() {
+            var w = canvas.width, h = canvas.height;
+            if (!staticCanvas) staticCanvas = document.createElement('canvas');
+            staticCanvas.width = w;
+            staticCanvas.height = h;
+            var c = staticCanvas.getContext('2d');
+            c.clearRect(0, 0, w, h);
+            var n = segments.length;
+            if (!n) { staticDirty = false; return; }
+            var cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 6 * dpr;
+            var seg = Math.PI * 2 / n;
+            var drawLabels = seg >= 0.10; // 扇区太窄时跳过文字，保证可读
+            for (var i = 0; i < n; i++) {
+                var a0 = i * seg, a1 = a0 + seg;
+                c.beginPath();
+                c.moveTo(cx, cy);
+                c.arc(cx, cy, R, a0, a1);
+                c.closePath();
+                c.fillStyle = segments[i].color;
+                c.fill();
+                c.strokeStyle = '#fff';
+                c.lineWidth = Math.max(1, 1.5 * dpr);
+                c.stroke();
+
+                if (drawLabels) {
+                    c.save();
+                    c.translate(cx, cy);
+                    c.rotate(a0 + seg / 2);
+                    c.textAlign = 'right';
+                    c.font = 'bold ' + (13 * dpr) + 'px "Microsoft YaHei", sans-serif';
+                    var label = segments[i].label;
+                    if (label.length > 8) label = label.slice(0, 8) + '…';
+                    c.lineWidth = 3 * dpr;
+                    c.strokeStyle = 'rgba(0,0,0,0.4)';
+                    c.strokeText(label, R - 12 * dpr, 4 * dpr);
+                    c.fillStyle = '#fff';
+                    c.fillText(label, R - 12 * dpr, 4 * dpr);
+                    c.restore();
+                }
+            }
+            staticDirty = false;
+        }
+
         function draw() {
             var w = canvas.width, h = canvas.height;
-            var cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 6;
+            var cx = w / 2, cy = h / 2, R = Math.min(w, h) / 2 - 6 * dpr;
             ctx.clearRect(0, 0, w, h);
-            var n = segments.length;
-            if (!n) {
+            if (!segments.length) {
                 ctx.fillStyle = '#999';
-                ctx.font = '14px sans-serif';
+                ctx.font = (14 * dpr) + 'px sans-serif';
                 ctx.textAlign = 'center';
                 ctx.fillText('请先填写选项', cx, cy);
                 return;
             }
-            var seg = Math.PI * 2 / n;
-            for (var i = 0; i < n; i++) {
-                var a0 = rotation + i * seg, a1 = a0 + seg;
-                ctx.beginPath();
-                ctx.moveTo(cx, cy);
-                ctx.arc(cx, cy, R, a0, a1);
-                ctx.closePath();
-                ctx.fillStyle = segments[i].color;
-                ctx.fill();
-                ctx.strokeStyle = '#fff';
-                ctx.lineWidth = 2;
-                ctx.stroke();
-
-                // 标签
-                ctx.save();
-                ctx.translate(cx, cy);
-                ctx.rotate(a0 + seg / 2);
-                ctx.textAlign = 'right';
-                ctx.fillStyle = '#fff';
-                ctx.font = 'bold 15px "Microsoft YaHei", sans-serif';
-                ctx.shadowColor = 'rgba(0,0,0,0.35)';
-                ctx.shadowBlur = 3;
-                var label = segments[i].label;
-                if (label.length > 8) label = label.slice(0, 8) + '…';
-                ctx.fillText(label, R - 14, 5);
-                ctx.restore();
-            }
+            if (staticDirty || !staticCanvas) renderStatic();
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(rotation);
+            ctx.drawImage(staticCanvas, -w / 2, -h / 2);
+            ctx.restore();
             ctx.beginPath();
             ctx.arc(cx, cy, R, 0, Math.PI * 2);
             ctx.strokeStyle = '#c9ced4';
-            ctx.lineWidth = 6;
+            ctx.lineWidth = 4 * dpr;
             ctx.stroke();
         }
 
@@ -181,23 +220,16 @@
             draw();
 
             var n = segments.length;
-            var seg = Math.PI * 2 / n;
-            var targetWinner = Math.floor(Math.random() * n);
-            // 让目标扇区停在指针下：rotation = -PI/2 - (targetWinner + 0.5) * seg + k*2PI
-            var base = -Math.PI / 2 - (targetWinner + 0.5) * seg;
-            var turns = 6 + Math.floor(Math.random() * 3);
-            var target = base + turns * Math.PI * 2;
-            while (target <= rotation) target += Math.PI * 2;
-
-            var start = rotation, total = target - rotation;
+            var plan = planSpin(rotation, n);
+            var targetWinner = plan.winner;
+            var start = rotation, total = plan.target - rotation;
             var DURATION = 4200;
             var t0 = performance.now();
             var lastTickSeg = winnerIndex(rotation, n);
 
             function frame(now) {
                 var p = Math.min(1, (now - t0) / DURATION);
-                var eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
-                rotation = start + total * eased;
+                rotation = start + total * easeOutCubic(p);
                 var cur = winnerIndex(rotation, n);
                 if (cur !== lastTickSeg) { tickSound(); lastTickSeg = cur; }
                 draw();
@@ -219,6 +251,7 @@
                 lines.splice(idx, 1);
                 $('options').value = lines.join('\n');
                 segments = buildSegments($('options').value);
+                staticDirty = true;
                 setTimeout(draw, 800);
             }
         }
@@ -231,14 +264,19 @@
             }
             $('options').value = lines.join('\n');
             segments = buildSegments($('options').value);
+            staticDirty = true;
             draw();
         }
 
         function init() {
             canvas = $('wheelCanvas');
             ctx = canvas.getContext('2d');
+            dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+            canvas.width = 380 * dpr;
+            canvas.height = 380 * dpr;
             $('options').addEventListener('input', function () {
                 segments = buildSegments(this.value);
+                staticDirty = true;
                 draw();
             });
             segments = buildSegments($('options').value);

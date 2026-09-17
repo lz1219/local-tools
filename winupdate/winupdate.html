@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>假装 Windows 更新</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .setup-wrap { max-width: 560px; margin: 0 auto; }
+        .opt-card { margin-bottom: 18px; }
+        .opt-card h3 { font-size: 13px; color: #666; margin-bottom: 10px; font-weight: 600; }
+        .seg { display: flex; gap: 8px; flex-wrap: wrap; }
+        .seg button {
+            flex: 1; min-width: 100px; padding: 9px 12px; font-size: 13px;
+            border: 1px solid #dde1e6; border-radius: 8px; background: #fafbfc;
+            color: #555; cursor: pointer; transition: all 0.15s;
+        }
+        .seg button:hover { border-color: #4a9eff; }
+        .seg button.active {
+            border-color: #4a9eff; background: #eaf3ff; color: #1565c0; font-weight: 600;
+            box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.15);
+        }
+        .seg button small { display: block; font-size: 11px; color: #999; margin-top: 2px; }
+        .seg button.active small { color: #5a90c8; }
+        .start-btn { width: 100%; padding: 13px; font-size: 15px; margin-top: 6px; }
+        .tips { margin-top: 16px; font-size: 12px; color: #999; line-height: 1.9; }
+        .tips code {
+            background: #f0f2f5; padding: 1px 6px; border-radius: 4px;
+            font-family: Consolas, monospace; font-size: 11px;
+        }
+
+        /* ---- 更新画面 ---- */
+        #updateScreen {
+            position: fixed; inset: 0; z-index: 999; display: none;
+            font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            cursor: none; user-select: none; overflow: hidden;
+        }
+        #updateScreen.show { display: block; }
+        #updateScreen.win11 { background: radial-gradient(130% 130% at 50% 28%, #0d3f8a 0%, #08295c 45%, #04102e 100%); }
+        #updateScreen.win10 { background: #0078d7; }
+        .upd-center {
+            position: absolute; top: 38%; left: 50%; transform: translate(-50%, -50%);
+            text-align: center; color: #fff;
+        }
+        .spinner { position: relative; width: 56px; height: 56px; margin: 0 auto 34px; }
+        .spinner i {
+            position: absolute; left: 50%; top: 50%; width: 9px; height: 9px;
+            margin: -4.5px; border-radius: 50%; background: #fff;
+            animation: spin-fade 1.8s linear infinite;
+        }
+        @keyframes spin-fade {
+            from { transform: rotate(0deg) translateY(-24px); opacity: 1; }
+            70% { opacity: 0.15; }
+            to { transform: rotate(360deg) translateY(-24px); opacity: 1; }
+        }
+        .upd-main { font-size: 30px; font-weight: 300; letter-spacing: 1px; margin-bottom: 14px; }
+        .upd-sub { font-size: 16px; font-weight: 300; opacity: 0.85; }
+        .upd-pct {
+            position: absolute; right: 6vw; bottom: 7vh; color: #fff;
+            font-size: 120px; font-weight: 200; line-height: 1;
+            font-variant-numeric: tabular-nums; letter-spacing: -2px;
+        }
+        #updateScreen.win10 .upd-pct {
+            position: absolute; left: 0; right: 0; top: 60%;
+            font-size: 84px; font-weight: 300; text-align: center;
+        }
+        #updateScreen.win10 .upd-center { top: 40%; width: 100%; }
+        .upd-tip {
+            position: absolute; left: 6vw; bottom: 7vh; max-width: 420px;
+            color: rgba(255, 255, 255, 0.75); font-size: 14px; line-height: 1.7;
+        }
+        .upd-elapsed {
+            position: absolute; top: 4vh; right: 6vw; color: rgba(255, 255, 255, 0.4);
+            font-size: 13px; font-variant-numeric: tabular-nums;
+        }
+        .exit-chip {
+            position: fixed; top: 10px; right: 10px; z-index: 1001;
+            padding: 8px 16px; font-size: 13px; border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.35);
+            background: rgba(0, 0, 0, 0.35); color: #fff; cursor: pointer;
+            display: none; backdrop-filter: blur(6px);
+        }
+        .exit-chip.show { display: block; }
+    </style>
+</head>
+<body>
+    <div class="container setup-wrap">
+        <h1>假装 Windows 更新</h1>
+        <p class="subtitle">整蛊神器 · 让对方以为电脑真的在更新</p>
+
+        <div class="panel opt-card">
+            <h3>系统风格</h3>
+            <div class="seg" id="styleSeg">
+                <button class="active" data-v="win11">Windows 11<small>深蓝渐变 · 大字号百分比</small></button>
+                <button data-v="win10">Windows 10<small>经典蓝屏 · 旋转圆点</small></button>
+            </div>
+        </div>
+
+        <div class="panel opt-card">
+            <h3>更新速度</h3>
+            <div class="seg" id="speedSeg">
+                <button data-v="slow">龟速<small>一场持久战</small></button>
+                <button class="active" data-v="normal">正常<small>以假乱真</small></button>
+                <button data-v="fast">快速<small>三分钟上头</small></button>
+                <button data-v="instant">光速<small>仅供演示</small></button>
+            </div>
+        </div>
+
+        <button class="btn-primary start-btn" id="startBtn">开始整蛊</button>
+
+        <div class="tips">
+            使用说明：点击开始后会尝试进入全屏并显示更新画面；鼠标默认隐藏，按 <code>Esc</code> 或把鼠标移到屏幕右上角可退出。若浏览器拦截全屏，画面仍会铺满当前窗口。
+        </div>
+    </div>
+
+    <div id="updateScreen" class="win11">
+        <div class="upd-elapsed" id="updElapsed"></div>
+        <div class="upd-center">
+            <div class="spinner" id="spinner"></div>
+            <div class="upd-main" id="updMain"></div>
+            <div class="upd-sub">请不要关闭计算机</div>
+        </div>
+        <div class="upd-pct" id="updPct">0%</div>
+        <div class="upd-tip" id="updTip"></div>
+    </div>
+    <button class="exit-chip" id="exitChip">退出整蛊 (Esc)</button>
+    <div id="toast"></div>
+
+    <script src="../assets/common.js"></script>
+    <script>
+        // ---- 可测的纯函数 ----
+
+        var SPEED_MS = { slow: 3.2, normal: 1, fast: 0.42, instant: 0.1 };
+
+        // 三阶段更新计划：下载 → 安装 → 完成（第三阶段永远到不了 100，像真的 Windows 一样）
+        function buildPlan(speed, rnd) {
+            rnd = rnd || Math.random;
+            var k = SPEED_MS[speed] || 1;
+            var jitter = function (v) { return v * (0.85 + rnd() * 0.3); };
+            return [
+                { label: '正在下载更新', dur: jitter(90000 * k) },
+                { label: '正在进行更新', dur: jitter(150000 * k) },
+                { label: '正在配置更新', dur: jitter(240000 * k) }
+            ];
+        }
+
+        // 某时刻的进度：前两个阶段线性推进，第三个阶段在 100% 前减速停滞
+        function progressAt(plan, tMs) {
+            var remain = tMs;
+            for (var i = 0; i < plan.length; i++) {
+                if (remain < plan[i].dur) {
+                    var p = remain / plan[i].dur;
+                    var pct;
+                    if (i < plan.length - 1) {
+                        pct = Math.floor(p * 100);
+                    } else {
+                        // 第三阶段：97% 后无限逼近 100 但永远差一口气
+                        pct = Math.floor(97 * (1 - Math.pow(1 - p, 1.6)) + Math.min(p * 3, 3));
+                    }
+                    return { stage: i, label: plan[i].label, pct: Math.max(0, Math.min(100, pct)) };
+                }
+                remain -= plan[i].dur;
+            }
+            var last = plan[plan.length - 1];
+            return { stage: plan.length - 1, label: last.label, pct: 99 };
+        }
+
+        // ---- 界面逻辑 ----
+        var TIPS = [
+            '提示：更新期间是泡咖啡、伸懒腰或思考人生的好时机。',
+            '提示：你的文件都还在，只是进度条走得很从容。',
+            '提示：请勿强制关机，除非你想体验真正的修复模式。',
+            '提示：99% 是一段旅程，不是一个终点。',
+            '提示：Windows 正在努力，请给予它一些耐心和鼓励。'
+        ];
+        var style = 'win11', speed = 'normal';
+        var plan = null, t0 = 0, tipIdx = 0, tipTimer = 0, running = false;
+
+        // 生成 8 颗旋转圆点
+        (function buildSpinner() {
+            var sp = document.getElementById('spinner');
+            for (var i = 0; i < 8; i++) {
+                var dot = document.createElement('i');
+                dot.style.animationDelay = (i * 1.8 / 8) + 's';
+                dot.style.transform = 'rotate(' + (i * 45) + 'deg) translateY(-24px)';
+                sp.appendChild(dot);
+            }
+        })();
+
+        function bindSeg(id, cb) {
+            var seg = document.getElementById(id);
+            seg.addEventListener('click', function (e) {
+                var btn = e.target.closest('button');
+                if (!btn) return;
+                seg.querySelectorAll('button').forEach(function (b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+                cb(btn.dataset.v);
+            });
+        }
+
+        function fmtElapsed(ms) {
+            var s = Math.floor(ms / 1000);
+            var h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
+            return '已更新 ' + (h > 0 ? h + ' 小时 ' : '') + m + ' 分 ' + (s % 60) + ' 秒';
+        }
+
+        function frame(now) {
+            if (!running) return;
+            var st = progressAt(plan, now - t0);
+            document.getElementById('updPct').textContent = st.pct + '%';
+            document.getElementById('updMain').textContent = st.label;
+            document.getElementById('updElapsed').textContent = fmtElapsed(now - t0);
+
+            tipTimer = (tipTimer || now);
+            if (now - tipTimer > 9000) {
+                tipTimer = now;
+                tipIdx = (tipIdx + 1) % TIPS.length;
+                document.getElementById('updTip').textContent = TIPS[tipIdx];
+            }
+            requestAnimationFrame(frame);
+        }
+
+        function start() {
+            plan = buildPlan(speed);
+            var scr = document.getElementById('updateScreen');
+            scr.className = style + ' show';
+            document.getElementById('updMain').textContent = plan[0].label;
+            document.getElementById('updPct').textContent = '0%';
+            document.getElementById('updTip').textContent = TIPS[0];
+            document.body.style.overflow = 'hidden';
+            if (document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(function () {});
+            }
+            running = true;
+            t0 = performance.now();
+            requestAnimationFrame(frame);
+        }
+
+        function stop() {
+            running = false;
+            document.getElementById('updateScreen').classList.remove('show');
+            document.getElementById('exitChip').classList.remove('show');
+            document.body.style.overflow = '';
+            if (document.fullscreenElement) document.exitFullscreen().catch(function () {});
+        }
+
+        if (typeof document.addEventListener === 'function') {
+            bindSeg('styleSeg', function (v) { style = v; });
+            bindSeg('speedSeg', function (v) { speed = v; });
+            document.getElementById('startBtn').addEventListener('click', start);
+            document.getElementById('exitChip').addEventListener('click', stop);
+            document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && running) stop(); });
+            document.addEventListener('mousemove', function (e) {
+                if (!running) return;
+                var chip = document.getElementById('exitChip');
+                if (e.clientX > window.innerWidth - 90 && e.clientY < 60) {
+                    chip.classList.add('show');
+                    document.getElementById('updateScreen').style.cursor = 'auto';
+                } else {
+                    chip.classList.remove('show');
+                    document.getElementById('updateScreen').style.cursor = 'none';
+                }
+            });
+        }
+    </script>
+</body>
+</html>

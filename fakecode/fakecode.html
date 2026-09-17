@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>假装写代码</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        html, body { height: 100%; margin: 0; }
+        body { background: #1e1e1e; overflow: hidden; }
+        .ide {
+            display: flex; flex-direction: column; height: 100vh;
+            --bg: #1e1e1e; --panel: #252526; --text: #d4d4d4;
+            --kw: #569cd6; --str: #ce9178; --cm: #6a9955; --num: #b5cea8; --log: #4ec9b0;
+            background: var(--bg); color: var(--text);
+            font-family: 'Cascadia Code', Consolas, 'Courier New', monospace;
+        }
+        .ide[data-theme="matrix"] {
+            --bg: #020805; --panel: #04140c; --text: #39ff6a;
+            --kw: #7dffb0; --str: #b6ffce; --cm: #1f8f46; --num: #eaffea; --log: #00e676;
+        }
+        .ide[data-theme="amber"] {
+            --bg: #140e02; --panel: #1e1504; --text: #ffb000;
+            --kw: #ffd34d; --str: #ffca66; --cm: #8a6420; --num: #ffe9a8; --log: #ff8f00;
+        }
+        .ide[data-theme="github"] {
+            --bg: #ffffff; --panel: #f6f8fa; --text: #24292f;
+            --kw: #cf222e; --str: #0a3069; --cm: #6e7781; --num: #0550ae; --log: #1a7f37;
+        }
+        .ide[data-theme="matrix"] .code-view { text-shadow: 0 0 6px rgba(57, 255, 106, 0.45); }
+        .ide[data-theme="amber"] .code-view { text-shadow: 0 0 5px rgba(255, 176, 0, 0.35); }
+
+        .titlebar {
+            display: flex; align-items: center; gap: 10px;
+            padding: 10px 16px; background: var(--panel); flex-shrink: 0;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.15);
+        }
+        .lights { display: flex; gap: 7px; }
+        .lights i { width: 12px; height: 12px; border-radius: 50%; }
+        .lights i:nth-child(1) { background: #ff5f57; }
+        .lights i:nth-child(2) { background: #febc2e; }
+        .lights i:nth-child(3) { background: #28c840; }
+        .titlebar .file-name { font-size: 12px; opacity: 0.7; margin-left: 6px; }
+        .titlebar .spacer { flex: 1; }
+        .titlebar select, .titlebar button {
+            background: var(--panel); color: var(--text);
+            border: 1px solid rgba(128, 128, 128, 0.3); border-radius: 6px;
+            font-size: 12px; padding: 5px 10px; cursor: pointer; font-family: inherit;
+        }
+        .titlebar button:hover, .titlebar select:hover { border-color: var(--kw); }
+        .titlebar button.on { background: var(--kw); color: var(--bg); border-color: var(--kw); }
+
+        .code-view {
+            flex: 1; overflow-y: auto; padding: 18px 22px;
+            font-size: 14px; line-height: 1.65; white-space: pre-wrap; word-break: break-all;
+            cursor: text;
+        }
+        .code-view .kw { color: var(--kw); }
+        .code-view .str { color: var(--str); }
+        .code-view .cm { color: var(--cm); font-style: italic; }
+        .code-view .num { color: var(--num); }
+        .code-view .log { color: var(--log); }
+        .code-view .err { color: #f14c4c; }
+        .cursor-blink { display: inline-block; width: 8px; height: 17px; background: var(--text);
+            vertical-align: -3px; animation: blink 1s steps(1) infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+
+        .statusbar {
+            display: flex; align-items: center; gap: 18px;
+            padding: 7px 16px; background: var(--panel); flex-shrink: 0;
+            font-size: 12px; border-top: 1px solid rgba(128, 128, 128, 0.15);
+        }
+        .statusbar .grow { flex: 1; }
+        .statusbar .prog-wrap {
+            width: 160px; height: 6px; border-radius: 3px;
+            background: rgba(128, 128, 128, 0.25); overflow: hidden;
+        }
+        .statusbar .prog { height: 100%; width: 0%; background: var(--log); transition: width 0.3s; }
+        .statusbar .ok { color: var(--log); }
+        .kbd-hint { position: fixed; right: 16px; bottom: 40px; font-size: 11px; opacity: 0.4; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div class="ide" id="ide" data-theme="vscode">
+        <div class="titlebar">
+            <div class="lights"><i></i><i></i><i></i></div>
+            <span class="file-name" id="titleFile">src/App.tsx — 拼命开发中</span>
+            <div class="spacer"></div>
+            <select id="themeSel" title="主题">
+                <option value="vscode">VS Code 深色</option>
+                <option value="matrix">Matrix 终端</option>
+                <option value="amber">琥珀复古</option>
+                <option value="github">GitHub 亮色</option>
+            </select>
+            <button id="autoBtn" title="自动播放">▶ 自动</button>
+            <button id="clearBtn" title="清空">清空</button>
+            <button id="fullBtn" title="全屏">全屏</button>
+        </div>
+
+        <div class="code-view" id="codeView" tabindex="0"></div>
+        <div class="kbd-hint">随便敲键盘即可开始表演 · 回车 = 强制换行</div>
+
+        <div class="statusbar">
+            <span id="stBranch">⎇ main</span>
+            <span id="stFile">src/App.tsx</span>
+            <span id="stLines">0 行</span>
+            <span class="grow"></span>
+            <span>项目完成度</span>
+            <div class="prog-wrap"><div class="prog" id="stProg"></div></div>
+            <span id="stPct">0%</span>
+            <span class="ok" id="stState">✔ 编译通过</span>
+        </div>
+    </div>
+    <div id="toast" style="display:none"></div>
+
+    <script src="../assets/common.js"></script>
+    <script>
+        // ---- 代码片段池：全栈工程项目 + 构建日志 + 测试输出 ----
+        var SNIPPETS = [
+            "import { useEffect, useState } from 'react';\n\n// 核心组件：把复杂的业务逻辑藏在简单的接口后面\nexport function Dashboard({ userId }) {\n  const [data, setData] = useState(null);\n  const [loading, setLoading] = useState(true);\n\n  useEffect(() => {\n    fetch(`/api/v2/users/${userId}/dashboard`)\n      .then(res => res.json())\n      .then(json => { setData(json); setLoading(false); });\n  }, [userId]);\n",
+            "  if (loading) return <Spinner size=\"large\" tip=\"数据加载中…\" />;\n  if (!data) return <EmptyState description=\"暂无数据\" />;\n\n  return (\n    <div className=\"dashboard\">\n      <StatCard title=\"今日收益\" value={data.profit} trend={data.trend} />\n      <Chart series={data.series} interval=\"1h\" />\n    </div>\n  );\n}\n",
+            "// utils/parser.ts\n// 兼容三种历史格式的解析器，注释里没人敢提为什么有三种\nexport function parseConfig(raw: string): Config {\n  const trimmed = raw.trim();\n  if (trimmed.startsWith('{')) return JSON.parse(trimmed);\n  if (trimmed.startsWith('config:')) return parseLegacy(trimmed);\n  return parseAncient(trimmed); // 2016 年的遗产，别动\n}\n",
+            "def train_model(dataset, epochs=50, lr=0.001):\n    \"\"\"训练推荐模型，loss 不降就调参，总有一款能跑\"\"\"\n    model = RecNet(hidden=256, layers=4)\n    optimizer = Adam(model.parameters(), lr=lr)\n    for epoch in range(epochs):\n        for batch in dataset:\n            loss = model(batch) + reg_lambda * model.l2()\n            loss.backward()\n            optimizer.step()\n        print(f'epoch {epoch} loss={loss.item():.4f}')\n    return model\n",
+            "package main\n\nimport \"fmt\"\n\n// 高并发限流器：令牌桶实现，线上跑了三年没出过事\ntype Limiter struct {\n\tbucket chan struct{}\n}\n\nfunc NewLimiter(rate int) *Limiter {\n\tl := &Limiter{ bucket: make(chan struct{}, rate) }\n\tgo l.refill(rate)\n\treturn l\n}\n",
+            "func (s *Server) handleRequest(w http.ResponseWriter, r *http.Request) {\n\tctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)\n\tdefer cancel()\n\n\tresp, err := s.service.Query(ctx, r.URL.Query())\n\tif err != nil {\n\t\thttp.Error(w, `{\"code\": 500, \"msg\": \"upstream timeout\"}`, 502)\n\t\treturn\n\t}\n\tjson.NewEncoder(w).Encode(resp)\n}\n",
+            "struct Cache<K, V> {\n    store: HashMap<K, (Instant, V)>,\n    ttl: Duration,\n}\n\nimpl<K: Hash + Eq, V: Clone> Cache<K, V> {\n    pub fn get(&mut self, key: &K) -> Option<V> {\n        let (ts, val) = self.store.get(key)?;\n        if ts.elapsed() > self.ttl {\n            self.store.remove(key); // 惰性淘汰\n            return None;\n        }\n        Some(val.clone())\n    }\n}\n",
+            "$ npm run build\n\n> workspace@1.4.2 build\n> vite build --mode production\n\n✓ 1482 modules transformed.\ndist/assets/index-Bx2k9f.js   286.14 kB │ gzip: 92.10 kB\ndist/assets/index-C81mdw.css   18.32 kB │ gzip: 4.71 kB\n✓ built in 8.42s\n",
+            "$ git commit -m \"fix: 修复偶发的时区偏移问题\"\n[main 3f9a2c1] fix: 修复偶发的时区偏移问题\n 3 files changed, 42 insertions(+), 17 deletions(-)\n$ git push origin main\nEnumerating objects: 9, done.\nremote: Resolving deltas: 100% (6/6), done.\n",
+            "PASS  src/api/__tests__/order.spec.ts (4.218s)\n  ✓ 创建订单并计算满减 (312ms)\n  ✓ 重复提交被幂等拦截 (88ms)\n  ✓ 库存并发扣减不出现负数 (1.204s)\n  ✓ 超时订单自动关闭 (402ms)\n\nTest Suites: 1 passed, 1 total\nTests:       42 passed, 42 total\n",
+            "const cache = new Map();\n\n// 带缓存的斐波那契，面试题走进生产\nfunction fib(n) {\n  if (n < 2) return n;\n  if (cache.has(n)) return cache.get(n);\n  const v = fib(n - 1) + fib(n - 2);\n  cache.set(n, v);\n  return v;\n}\n\nconsole.log(fib(40)); // 102334155\n",
+            "-- schema.sql\n-- 给订单表加分区，DBA 说下周再做，先留着\nCREATE TABLE orders_2026_q3 PARTITION OF orders\n  FOR VALUES FROM ('2026-07-01') TO ('2026-10-01');\n\nCREATE INDEX idx_orders_q3_uid ON orders_2026_q3 (user_id);\nANALYZE orders_2026_q3;\n",
+            "$ docker compose up -d\n[+] Running 4/4\n ✔ Container redis     Started (2.1s)\n ✔ Container postgres  Started (3.4s)\n ✔ Container api       Started (4.8s)\n ✔ Container nginx     Started (5.2s)\n$ curl -s localhost:8080/health\n{\"status\":\"ok\",\"uptime\":\"0d 0h 0m 5s\"}\n"
+        ];
+
+        var FILES = [
+            'src/App.tsx', 'utils/parser.ts', 'api/server.go', 'core/cache.rs',
+            'ml/recommend.py', 'scripts/deploy.sh', 'tests/order.spec.ts', 'schema.sql'
+        ];
+
+        // ---- 可测的纯函数 ----
+
+        var TOKEN_RE = /(\/\/[^\n]*|#[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`|\b(?:const|let|var|function|return|import|from|export|default|class|extends|new|async|await|if|else|for|while|of|in|try|catch|throw|this|null|undefined|true|false|void|delete|typeof|def|fn|pub|struct|impl|match|use|package|func|go|defer|interface|type|print|print(?:f|ln)|echo|CREATE|TABLE|INDEX|SELECT|FROM|WHERE)\b|\b\d+(?:\.\d+)?\b)/g;
+
+        function escHtml(s) {
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        // 轻量语法高亮：先转义再按 token 上色，日志行整行标绿
+        function highlight(code) {
+            var out = '', last = 0, m;
+            TOKEN_RE.lastIndex = 0;
+            while ((m = TOKEN_RE.exec(code)) !== null) {
+                out += escHtml(code.slice(last, m.index));
+                var tok = m[0], cls;
+                if (tok.charAt(0) === '/' || tok.charAt(0) === '#') cls = 'cm';
+                else if (tok.charAt(0) === '"' || tok.charAt(0) === "'" || tok.charAt(0) === '`') cls = 'str';
+                else if (/^\d/.test(tok)) cls = 'num';
+                else cls = 'kw';
+                out += '<span class="' + cls + '">' + escHtml(tok) + '</span>';
+                last = m.index + tok.length;
+            }
+            out += escHtml(code.slice(last));
+            return out;
+        }
+
+        // 挑下一个片段：不与上一个重复
+        function nextIndex(rnd, total, prev) {
+            if (total <= 1) return 0;
+            var i;
+            do { i = Math.floor(rnd() * total); } while (i === prev);
+            return i;
+        }
+
+        // 项目完成度：随片段数增长但永远差一点
+        function progressOf(chunks) {
+            return Math.min(99, Math.floor(100 * (1 - Math.pow(0.965, chunks))));
+        }
+
+        // ---- 界面逻辑 ----
+        var chunks = 0, lastIdx = -1, autoTimer = null;
+
+        function typeChunk() {
+            lastIdx = nextIndex(Math.random, SNIPPETS.length, lastIdx);
+            var view = document.getElementById('codeView');
+            var span = document.createElement('span');
+            span.innerHTML = highlight(SNIPPETS[lastIdx]);
+            view.insertBefore(span, view.querySelector('.cursor-blink'));
+            chunks++;
+            updateStatus();
+            view.scrollTop = view.scrollHeight;
+        }
+
+        function updateStatus() {
+            var view = document.getElementById('codeView');
+            var lines = view.textContent.split('\n').length;
+            document.getElementById('stLines').textContent = lines + ' 行';
+            var p = progressOf(chunks);
+            document.getElementById('stProg').style.width = p + '%';
+            document.getElementById('stPct').textContent = p + '%';
+            if (chunks % 6 === 5) {
+                var f = FILES[chunks % FILES.length];
+                document.getElementById('stFile').textContent = f;
+                document.getElementById('titleFile').textContent = f + ' — 拼命开发中';
+            }
+        }
+
+        function ensureCursor() {
+            var view = document.getElementById('codeView');
+            if (!view.querySelector('.cursor-blink')) {
+                var c = document.createElement('span');
+                c.className = 'cursor-blink';
+                view.appendChild(c);
+            }
+        }
+
+        function setAuto(on) {
+            var btn = document.getElementById('autoBtn');
+            if (on) {
+                autoTimer = setInterval(typeChunk, 110);
+                btn.classList.add('on');
+                btn.textContent = '⏸ 暂停';
+            } else {
+                clearInterval(autoTimer);
+                autoTimer = null;
+                btn.classList.remove('on');
+                btn.textContent = '▶ 自动';
+            }
+        }
+
+        function bindUI() {
+            var view = document.getElementById('codeView');
+            ensureCursor();
+
+            document.addEventListener('keydown', function (e) {
+                if (e.target.tagName === 'SELECT') return;
+                if (e.key === 'Enter') {
+                    var br = document.createElement('span');
+                    br.innerHTML = '\n';
+                    view.insertBefore(br, view.querySelector('.cursor-blink'));
+                } else if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+                    typeChunk();
+                }
+            });
+            view.addEventListener('click', function () { typeChunk(); });
+
+            document.getElementById('themeSel').addEventListener('change', function () {
+                document.getElementById('ide').dataset.theme = this.value;
+            });
+            document.getElementById('autoBtn').addEventListener('click', function () {
+                setAuto(!autoTimer);
+            });
+            document.getElementById('clearBtn').addEventListener('click', function () {
+                view.innerHTML = '';
+                chunks = 0;
+                ensureCursor();
+                updateStatus();
+            });
+            document.getElementById('fullBtn').addEventListener('click', function () {
+                if (document.fullscreenElement) document.exitFullscreen();
+                else document.documentElement.requestFullscreen().catch(function () {});
+            });
+        }
+
+        if (typeof document.addEventListener === 'function') {
+            bindUI();
+        }
+    </script>
+</body>
+</html>
