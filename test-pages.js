@@ -65,7 +65,12 @@ function check(name, cond) {
 // ---- replace.html ----
 {
     const { ctx, els, listeners } = loadPage('str/replace.html');
-    check('默认规则渲染', els['rulesList'].innerHTML.includes('tree2053') && els['rulesList'].innerHTML.includes('data-idx="1"'));
+    check('默认无规则', ctx.rules.length === 0);
+    ctx.addRule(); ctx.addRule();
+    ctx.rules[0] = ['tree2053.hh7758521.top:10086', 'tree10086.hh7758521.top:443'];
+    ctx.rules[1] = ['&security=none', 'tls=true'];
+    ctx.renderRules();
+    check('规则渲染', els['rulesList'].innerHTML.includes('tree2053') && els['rulesList'].innerHTML.includes('data-idx="1"'));
     els['input'].value = 's tree2053.hh7758521.top:10086 &security=none';
     ctx.doReplace();
     check('替换结果', els['output'].value === 's tree10086.hh7758521.top:443 tls=true');

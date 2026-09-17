@@ -1,0 +1,7 @@
+---
+description: 本地工具箱项目约定
+alwaysApply: true
+---
+本仓库的 AI 编码约定见根目录 AGENTS.md，请以其为准：
+新工具页必须引用 assets/common.css 与 assets/common.js，遵循统一页面结构与命名约定；
+任何修改后运行 node test-pages.js，全部通过才可提交。
