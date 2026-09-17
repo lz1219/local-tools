@@ -74,8 +74,26 @@
     <script src="../assets/common.js"></script>
     <script>
         var defaultRules = [];
+        var STORAGE_KEY = 'str-replace-rules';
 
-        var rules = defaultRules.map(function (r) { return [r[0], r[1]]; });
+        function saveRules() {
+            try { localStorage.setItem(STORAGE_KEY, JSON.stringify(rules)); } catch (e) {}
+        }
+
+        function loadRules() {
+            try {
+                var raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return null;
+                var arr = JSON.parse(raw);
+                if (!Array.isArray(arr)) return null;
+                return arr
+                    .filter(function (r) { return Array.isArray(r) && r.length === 2; })
+                    .map(function (r) { return [String(r[0]), String(r[1])]; });
+            } catch (e) { return null; }
+        }
+
+        var savedRules = loadRules();
+        var rules = savedRules !== null ? savedRules : defaultRules.map(function (r) { return [r[0], r[1]]; });
 
         function updateRuleCount() {
             $('ruleCount').textContent = rules.length + ' 条规则';
@@ -102,6 +120,7 @@
             var t = e.target, i = +t.dataset.idx;
             if (t.classList.contains('find')) rules[i][0] = t.value;
             else if (t.classList.contains('rep')) rules[i][1] = t.value;
+            saveRules();
         });
         $('rulesList').addEventListener('click', function (e) {
             var btn = e.target.closest && e.target.closest('.del');
@@ -110,11 +129,13 @@
 
         function addRule() {
             rules.push(['', '']);
+            saveRules();
             renderRules();
         }
 
         function removeRule(i) {
             rules.splice(i, 1);
+            saveRules();
             renderRules();
         }
 

@@ -6,6 +6,14 @@ const vm = require('vm');
 const ROOT = __dirname;
 const commonJs = fs.readFileSync(path.join(ROOT, 'assets/common.js'), 'utf8');
 
+// 跨页面共享的内存 localStorage，用于持久化测试
+const memStore = {};
+const memStorage = {
+    getItem: (k) => (k in memStore ? memStore[k] : null),
+    setItem: (k, v) => { memStore[k] = String(v); },
+    removeItem: (k) => { delete memStore[k]; }
+};
+
 function loadPage(rel) {
     const html = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     const m = html.match(/<script>([\s\S]*?)<\/script>/);
@@ -26,6 +34,7 @@ function loadPage(rel) {
         setInterval() {},
         navigator: {},
         TextEncoder, TextDecoder, Uint8Array, JSON,
+        localStorage: memStorage,
         btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
         atob: (s) => Buffer.from(s, 'base64').toString('binary'),
         document: {
@@ -88,6 +97,10 @@ function check(name, cond) {
     check('委托删除规则', ctx.rules.length === before - 1 && ctx.rules[0][0] === 'foo');
     ctx.addRule();
     check('添加规则', ctx.rules.length === 2);
+    // 持久化：保存后重新加载页面，规则应恢复
+    ctx.saveRules();
+    const p2 = loadPage('str/replace.html');
+    check('规则持久化', p2.ctx.rules.length === 2 && p2.ctx.rules[0][0] === 'foo');
 }
 
 // ---- json.html ----
