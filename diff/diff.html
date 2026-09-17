@@ -68,6 +68,9 @@
         .sd-row.fold .cell { background: #f0f4f8; color: #999; cursor: pointer; text-align: center; user-select: none; }
         .sd-row.fold .cell:hover { background: #e3f2fd; color: #1565c0; }
 
+        /* 并排视图超长行：内容区按实测最小宽度撑开，外层出现横向滚动条 */
+        #diffResult { min-width: 100%; }
+
         .part-del { background: rgba(229, 57, 53, 0.25); border-radius: 2px; }
         .part-add { background: rgba(67, 160, 71, 0.28); border-radius: 2px; }
 
@@ -178,7 +181,9 @@
                 <span><span class="sw" style="background:linear-gradient(to right,#ffeef0,#e8f5e9)"></span>修改的行（同一行左右对应，槽内 ⇄）</span>
                 <span><span class="sw" style="background:#f0f4f8"></span>未更改（超长段可折叠）</span>
             </div>
-            <div class="diff-wrap" id="diffResult"></div>
+            <div class="diff-wrap">
+                <div id="diffResult"></div>
+            </div>
         </div>
     </div>
     <div id="toast"></div>
@@ -358,17 +363,17 @@
                 if (i < n && dMap[i] !== undefined) {
                     var aj = dMap[i];
                     while (j < aj) {
-                        if (aMap[j] === undefined) units.push({ t: 'add', bn: as[j].bn, bHtml: esc(as[j].text) });
+                        if (aMap[j] === undefined) units.push({ t: 'add', bn: as[j].bn, bHtml: esc(as[j].text), bText: as[j].text });
                         j++;
                     }
                     var seg = inlineDiff(ds[i].text, as[aj].text);
-                    units.push({ t: 'change', an: ds[i].an, bn: as[aj].bn, aHtml: segsHtml(seg.a, 'del'), bHtml: segsHtml(seg.b, 'add') });
+                    units.push({ t: 'change', an: ds[i].an, bn: as[aj].bn, aHtml: segsHtml(seg.a, 'del'), bHtml: segsHtml(seg.b, 'add'), aText: ds[i].text, bText: as[aj].text });
                     j = aj + 1; i++;
                 } else if (i < n) {
-                    units.push({ t: 'del', an: ds[i].an, aHtml: esc(ds[i].text) });
+                    units.push({ t: 'del', an: ds[i].an, aHtml: esc(ds[i].text), aText: ds[i].text });
                     i++;
                 } else {
-                    if (aMap[j] === undefined) units.push({ t: 'add', bn: as[j].bn, bHtml: esc(as[j].text) });
+                    if (aMap[j] === undefined) units.push({ t: 'add', bn: as[j].bn, bHtml: esc(as[j].text), bText: as[j].text });
                     j++;
                 }
             }
@@ -387,7 +392,7 @@
             rows.forEach(function (r) {
                 if (r.t === 'same') {
                     flush();
-                    units.push({ t: 'same', an: r.an, bn: r.bn, aHtml: esc(r.text), bHtml: esc(r.text) });
+                    units.push({ t: 'same', an: r.an, bn: r.bn, aHtml: esc(r.text), bHtml: esc(r.text), aText: r.text, bText: r.text });
                 } else pending.push(r);
             });
             flush();
@@ -467,9 +472,41 @@
         var lastDiffText = '';
         var changeEls = [], changeIdx = -1;
 
+        // 用 canvas 按实际字体测量行宽；环境不支持时返回 0（跳过撑宽）
+        var measureCanvas = null;
+        function measureLine(text) {
+            if (!measureCanvas && typeof document.createElement === 'function') {
+                try {
+                    var c = document.createElement('canvas');
+                    var ctx = c.getContext && c.getContext('2d');
+                    if (ctx) {
+                        ctx.font = '13px Consolas, "Courier New", monospace';
+                        c.ctx = ctx;
+                        measureCanvas = c;
+                    }
+                } catch (e) { measureCanvas = null; }
+            }
+            if (!measureCanvas) return 0;
+            return measureCanvas.ctx.measureText(String(text).replace(/\t/g, '  ')).width;
+        }
+
+        // 并排视图：按最长行把内容区撑到足够宽，超出窗口部分由外层滚动
+        function applySideMinWidth() {
+            var maxW = 0;
+            lastUnits.forEach(function (u) {
+                var wa = u.aText ? measureLine(u.aText) : 0;
+                var wb = u.bText ? measureLine(u.bText) : 0;
+                if (wa > maxW) maxW = wa;
+                if (wb > maxW) maxW = wb;
+            });
+            if (maxW > 0) $('diffResult').style.minWidth = (Math.ceil(maxW) * 2 + 140) + 'px';
+        }
+
         function renderCurrentView() {
             if (!lastUnits.length) return;
             $('diffResult').innerHTML = currentView === 'side' ? renderSideBySide(lastUnits) : renderUnified(lastUnits);
+            $('diffResult').style.minWidth = '';
+            if (currentView === 'side') applySideMinWidth();
             changeEls = $('diffResult').querySelectorAll
                 ? Array.prototype.slice.call($('diffResult').querySelectorAll('.sd-row.change, .sd-row.del, .sd-row.add, .diff-row.del, .diff-row.add'))
                 : [];
@@ -566,6 +603,7 @@
             $('inputA').value = '';
             $('inputB').value = '';
             $('diffResult').innerHTML = '';
+            $('diffResult').style.minWidth = '';
             $('resultPanel').style.display = 'none';
             $('diffBadge').textContent = '';
             $('navBadge').textContent = '';

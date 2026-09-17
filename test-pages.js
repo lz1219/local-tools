@@ -191,6 +191,7 @@ function check(name, cond) {
     check('相似度配对不误配', u.length === 6 &&
         u[2].t === 'del' && u[2].aHtml.includes('aaa') &&
         u[3].t === 'change' && u[3].aHtml.includes('part-del') && u[3].bHtml.includes('dawdwadawd'));
+    check('单元保留原文', u[3].aText === 'dawdwadawdd' && u[3].bText === 'dawdwadawd');
     const seg = ctx.inlineDiff('abcde', 'abXde');
     check('inlineDiff 段落', seg.a.length === 3 && seg.a[1].t === 'chg' && seg.a[1].text === 'c' && seg.b[1].text === 'X');
     check('inlineDiff 完全相同', ctx.inlineDiff('same', 'same').a.every(s => s.t === 'same'));
