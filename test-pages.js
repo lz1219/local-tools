@@ -202,6 +202,7 @@ function check(name, cond) {
         (els['diffResult'].innerHTML.match(/sd-row same/g) || []).length === 15);
     ctx.switchView('unified');
     check('统一视图渲染', els['diffResult'].innerHTML.includes('diff-row del') && els['diffResult'].innerHTML.includes('diff-row add'));
+    check('统一视图配对标记', els['diffResult'].innerHTML.includes('diff-row del paired') && els['diffResult'].innerHTML.includes('diff-row add paired'));
 }
 
 // ---- time.html ----
