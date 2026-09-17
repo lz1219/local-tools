@@ -250,5 +250,42 @@ function check(name, cond) {
     check('相对时间', ctx.relTime(new Date(Date.now() - 3600000)) === '1 小时前');
 }
 
+// ---- table.html ----
+{
+    const { ctx, els } = loadPage('table/table.html');
+    // MD 解析：围栏 + 转义竖线 + 不齐行补齐
+    const rows = ctx.parseMarkdownTable('```md\n| 名称 | 说明 |\n| --- | --- |\n| a\\|b | 包含\\|竖线 |\n| 短 |\n```');
+    check('MD 解析', rows.length === 3 && rows[1][0] === 'a|b' && rows[2][1] === '');
+    check('MD 检测', ctx.detectFormat('| a |\n| --- |\n| b |') === 'md');
+    check('CSV 检测', ctx.detectFormat('a,b\n1,2') === 'csv');
+    check('CSV 引号解析', JSON.stringify(ctx.parseCsv('a,"b,c","d""e"\n1,2,3', ',')[0]) === JSON.stringify(['a', 'b,c', 'd"e']));
+    check('CSV 分隔符识别', ctx.detectCsvDelim('a\tb\n1\t2') === '\t');
+    // MD → CSV 引号包裹
+    check('MD 转 CSV 转义', ctx.mdToCsv('| x | y |\n| --- | --- |\n| 含,逗号 | 含"引号 |', ',') === 'x,y\n"含,逗号","含""引号"');
+    check('CSV 转 MD', ctx.csvToMd('name,age\n张三,28', ',') === '| name | age |\n| --- | --- |\n| 张三 | 28 |');
+    // 回环
+    const md = '| name | age |\n| --- | --- |\n| 张三 | 28 |';
+    check('MD CSV 回环', ctx.csvToMd(ctx.mdToCsv(md, ','), ',') === md);
+    const md2 = '| a | b |\n| --- | --- |\n| x\\|y | z |';
+    check('竖线转义回环', ctx.csvToMd(ctx.mdToCsv(md2, ','), ',') === md2);
+    // convert 集成与错误路径
+    els['input'].value = md;
+    ctx.convert('auto');
+    check('智能转换 MD→CSV', els['output'].value === 'name,age\n张三,28' && els['statusBadge'].className.includes('badge-ok'));
+    els['input'].value = '随便一行字';
+    ctx.convert('auto');
+    check('无法识别报错', els['statusBadge'].className.includes('badge-err'));
+}
+
+// ---- img.html ----
+{
+    const { ctx } = loadPage('img/img.html');
+    check('输出文件名', ctx.outputName('photo.png', 'image/jpeg') === 'photo-min.jpg');
+    check('mime 扩展名', ctx.extForMime('image/webp') === '.webp' && ctx.extForMime('image/png') === '.png');
+    ctx.saveSettings();
+    const p2 = loadPage('img/img.html');
+    check('设置持久化', JSON.stringify(p2.ctx.loadSettings()) === JSON.stringify(ctx.loadSettings()));
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

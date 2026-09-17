@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片处理工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .drop-zone {
+            border: 2px dashed #dde1e6;
+            border-radius: 10px;
+            background: #fafbfc;
+            padding: 40px 20px;
+            text-align: center;
+            color: #999;
+            font-size: 14px;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .drop-zone:hover, .drop-zone.over { border-color: #4a9eff; background: #f0f7ff; }
+        .drop-zone .hint { font-size: 12px; color: #bbb; margin-top: 6px; }
+
+        .settings-row {
+            display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+            font-size: 13px; color: #666;
+        }
+        .settings-row select, .settings-row input[type="number"] {
+            padding: 6px 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; background: #fff; color: #333;
+        }
+        .settings-row input[type="range"] { accent-color: #4a9eff; width: 140px; vertical-align: middle; }
+        .settings-row .val { font-family: Consolas, monospace; color: #2c3e50; min-width: 34px; display: inline-block; }
+
+        .img-item { display: flex; gap: 16px; align-items: center; }
+        .img-item .thumb {
+            width: 96px; height: 96px; object-fit: contain; flex-shrink: 0;
+            background: #f0f2f5; border: 1px solid #e0e4e8; border-radius: 6px;
+            cursor: zoom-in;
+        }
+        .img-item .meta { flex: 1; min-width: 0; font-size: 13px; color: #666; line-height: 1.7; }
+        .img-item .meta .name {
+            font-weight: 600; color: #2c3e50;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .img-item .meta .sizes { font-family: Consolas, monospace; }
+        .img-item .meta .save { color: #2e7d32; font-weight: 600; }
+        .img-item .meta .note { color: #ef6c00; font-size: 12px; }
+        .img-item .actions { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+        .img-item .status { font-size: 12px; color: #aaa; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>图片处理工具</h1>
+        <p class="subtitle">本地压缩 · 缩放 · 格式转换 · 支持粘贴截图</p>
+
+        <div class="panel">
+            <div class="drop-zone" id="dropZone">
+                点击选择图片，或直接拖拽到此处，也可以 Ctrl+V 粘贴剪贴板截图
+                <div class="hint">支持多张批量处理 · 图片不会上传到任何地方</div>
+                <input type="file" id="fileInput" accept="image/*" multiple style="display:none">
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="settings-row">
+                <span>输出格式:
+                    <select id="outFormat">
+                        <option value="original" selected>保持原格式</option>
+                        <option value="image/jpeg">JPEG</option>
+                        <option value="image/png">PNG（无损）</option>
+                        <option value="image/webp">WebP</option>
+                    </select>
+                </span>
+                <span>质量: <input type="range" id="quality" min="1" max="100" value="80"><span class="val" id="qualityVal">80</span></span>
+                <span>最大边长: <input type="number" id="maxEdge" min="0" max="20000" placeholder="0" style="width:80px"> px <span style="color:#aaa">(0 为不缩放)</span></span>
+                <button class="btn-danger btn-sm" onclick="clearAll()">清空列表</button>
+            </div>
+        </div>
+
+        <div id="itemList"></div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        var STORAGE_KEY = 'img-tool-settings';
+        var DEFAULTS = { format: 'original', quality: 80, maxEdge: 0 };
+
+        function loadSettings() {
+            try {
+                var raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return Object.assign({}, DEFAULTS);
+                var s = JSON.parse(raw);
+                return Object.assign({}, DEFAULTS, s);
+            } catch (e) { return Object.assign({}, DEFAULTS); }
+        }
+
+        function saveSettings() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                    format: $('outFormat').value,
+                    quality: +$('quality').value,
+                    maxEdge: +$('maxEdge').value || 0
+                }));
+            } catch (e) {}
+        }
+
+        function extForMime(mime) {
+            return { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp' }[mime] || '.img';
+        }
+
+        function outputName(name, mime) {
+            return name.replace(/\.[^.]+$/, '') + '-min' + extForMime(mime);
+        }
+
+        var items = [];
+
+        function getSettings() {
+            return {
+                format: $('outFormat').value,
+                quality: +$('quality').value,
+                maxEdge: +$('maxEdge').value || 0
+            };
+        }
+
+        function targetMime(item, settings) {
+            if (settings.format !== 'original') return settings.format;
+            var t = item.file.type;
+            if (t === 'image/jpeg' || t === 'image/png' || t === 'image/webp') return t;
+            return 'image/png'; // gif/bmp 等无法直接回写的统一转 png
+        }
+
+        function renderItems() {
+            $('itemList').innerHTML = items.map(function (it, i) {
+                var thumb = it.resultUrl || it.previewUrl || '';
+                var statusTxt = it.status === 'processing' ? '处理中…'
+                    : it.status === 'error' ? '失败: ' + (it.error || '未知错误')
+                    : it.status === 'done' ? '完成' : '';
+                var sizeLine = '';
+                if (it.status === 'done' && it.resultBlob) {
+                    var save = it.file.size > 0 ? Math.round((1 - it.resultBlob.size / it.file.size) * 100) : 0;
+                    sizeLine = '<div class="sizes">' + formatSize(it.file.size) + ' → ' + formatSize(it.resultBlob.size) +
+                        ' <span class="save">' + (save >= 0 ? '省 ' + save + '%' : '增大 ' + (-save) + '%') + '</span>' +
+                        ' · ' + it.w + '×' + it.h + (it.outW !== it.w || it.outH !== it.h ? ' → ' + it.outW + '×' + it.outH : '') + '</div>';
+                }
+                return '<div class="panel img-item">' +
+                    (thumb ? '<img class="thumb" src="' + thumb + '" onclick="window.open(\'' + thumb + '\')">' : '<div class="thumb"></div>') +
+                    '<div class="meta"><div class="name">' + escHtml(it.file.name) + '</div>' +
+                    sizeLine +
+                    (it.note ? '<div class="note">' + it.note + '</div>' : '') +
+                    '<div class="status">' + statusTxt + '</div></div>' +
+                    '<div class="actions">' +
+                    (it.status === 'done' ? '<button class="btn-success btn-sm" onclick="downloadItem(' + i + ')">下载</button>' : '') +
+                    '<button class="btn-outline btn-sm" onclick="removeItem(' + i + ')">移除</button>' +
+                    '</div></div>';
+            }).join('');
+        }
+
+        function escHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+        }
+
+        function loadImage(url) {
+            return new Promise(function (resolve, reject) {
+                var img = new Image();
+                img.onload = function () { resolve(img); };
+                img.onerror = function () { reject(new Error('图片解码失败')); };
+                img.src = url;
+            });
+        }
+
+        function canvasToBlob(canvas, mime, quality) {
+            return new Promise(function (resolve, reject) {
+                canvas.toBlob(function (blob) {
+                    if (blob) resolve(blob);
+                    else reject(new Error('编码失败（浏览器可能不支持该格式）'));
+                }, mime, quality);
+            });
+        }
+
+        function processItem(item) {
+            var settings = getSettings();
+            var url = URL.createObjectURL(item.file);
+            item.previewUrl = url;
+            item.status = 'processing';
+            renderItems();
+
+            loadImage(url).then(function (img) {
+                item.w = img.naturalWidth;
+                item.h = img.naturalHeight;
+                var scale = 1;
+                if (settings.maxEdge > 0 && Math.max(item.w, item.h) > settings.maxEdge)
+                    scale = settings.maxEdge / Math.max(item.w, item.h);
+                item.outW = Math.max(1, Math.round(item.w * scale));
+                item.outH = Math.max(1, Math.round(item.h * scale));
+
+                var canvas = document.createElement('canvas');
+                canvas.width = item.outW;
+                canvas.height = item.outH;
+                var ctx = canvas.getContext('2d');
+                if (settings.format === 'image/jpeg') { // jpeg 无透明通道，先铺白底
+                    ctx.fillStyle = '#fff';
+                    ctx.fillRect(0, 0, item.outW, item.outH);
+                }
+                ctx.drawImage(img, 0, 0, item.outW, item.outH);
+
+                var mime = targetMime(item, settings);
+                var q = mime === 'image/png' ? undefined : settings.quality / 100;
+                return canvasToBlob(canvas, mime, q).then(function (blob) {
+                    if (mime === 'image/webp' && blob.type !== 'image/webp')
+                        throw new Error('当前浏览器不支持 WebP 编码');
+                    if (item.resultUrl) URL.revokeObjectURL(item.resultUrl);
+                    item.resultBlob = blob;
+                    item.resultUrl = URL.createObjectURL(blob);
+                    item.mime = mime;
+                    item.status = 'done';
+                    renderItems();
+                });
+            }).catch(function (e) {
+                item.status = 'error';
+                item.error = e.message;
+                renderItems();
+            });
+        }
+
+        function addFiles(fileList) {
+            var files = Array.prototype.slice.call(fileList).filter(function (f) {
+                return f.type.indexOf('image/') === 0;
+            });
+            if (!files.length) { showToast('未检测到图片文件'); return; }
+            files.forEach(function (f) {
+                var item = { file: f, status: 'pending' };
+                if (/\.gif$/i.test(f.name)) item.note = 'GIF 将按首帧处理，动画会丢失';
+                items.push(item);
+                processItem(item);
+            });
+        }
+
+        function downloadItem(i) {
+            var it = items[i];
+            if (!it || !it.resultUrl) return;
+            var a = document.createElement('a');
+            a.href = it.resultUrl;
+            a.download = outputName(it.file.name, it.mime);
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        function removeItem(i) {
+            var it = items[i];
+            if (it) {
+                if (it.resultUrl) URL.revokeObjectURL(it.resultUrl);
+                if (it.previewUrl) URL.revokeObjectURL(it.previewUrl);
+            }
+            items.splice(i, 1);
+            renderItems();
+        }
+
+        function clearAll() {
+            items.forEach(function (it) {
+                if (it.resultUrl) URL.revokeObjectURL(it.resultUrl);
+                if (it.previewUrl) URL.revokeObjectURL(it.previewUrl);
+            });
+            items = [];
+            renderItems();
+        }
+
+        // ---- 事件绑定 ----
+        var dz = $('dropZone');
+        dz.addEventListener('click', function () { $('fileInput').click(); });
+        $('fileInput').addEventListener('change', function () {
+            addFiles(this.files);
+            this.value = '';
+        });
+        dz.addEventListener('dragover', function (e) { e.preventDefault(); dz.classList.add('over'); });
+        dz.addEventListener('dragleave', function () { dz.classList.remove('over'); });
+        dz.addEventListener('drop', function (e) {
+            e.preventDefault();
+            dz.classList.remove('over');
+            if (e.dataTransfer) addFiles(e.dataTransfer.files);
+        });
+        if (typeof document.addEventListener === 'function') {
+            document.addEventListener('paste', function (e) {
+                if (!e.clipboardData) return;
+                var files = [];
+                Array.prototype.forEach.call(e.clipboardData.items, function (it) {
+                    if (it.kind === 'file' && it.type.indexOf('image/') === 0) {
+                        var f = it.getAsFile();
+                        if (f && !f.name) f = new File([f], '剪贴板图片 ' + new Date().toLocaleTimeString() + '.png', { type: f.type });
+                        if (f) files.push(f);
+                    }
+                });
+                if (files.length) { addFiles(files); showToast('已粘贴 ' + files.length + ' 张图片'); }
+            });
+        }
+
+        // 设置项联动
+        function syncQualityState() {
+            var isPng = $('outFormat').value === 'image/png';
+            $('quality').disabled = isPng;
+            $('qualityVal').textContent = isPng ? '—' : $('quality').value;
+        }
+        $('quality').addEventListener('input', function () {
+            $('qualityVal').textContent = this.value;
+            saveSettings();
+        });
+        $('outFormat').addEventListener('change', function () { syncQualityState(); saveSettings(); });
+        $('maxEdge').addEventListener('change', saveSettings);
+
+        // 恢复上次设置
+        (function () {
+            var s = loadSettings();
+            $('outFormat').value = s.format;
+            $('quality').value = s.quality;
+            $('maxEdge').value = s.maxEdge || '';
+            syncQualityState();
+        })();
+    </script>
+</body>
+</html>

@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown 表格 ↔ CSV 转换工具</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .tools-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .tools-row select {
+            padding: 7px 12px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; background: #fff; color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Markdown 表格 ↔ CSV 转换工具</h1>
+        <p class="subtitle">Markdown 表格与 CSV/TSV 互转 · 自动识别方向</p>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>输入</h3>
+                <span class="badge badge-info" id="sizeBadge"></span>
+            </div>
+            <div class="editor-wrap">
+                <div class="line-numbers" id="inputLines"><div>1</div></div>
+                <textarea id="input" placeholder="粘贴 Markdown 表格或 CSV 内容..."></textarea>
+            </div>
+        </div>
+
+        <div class="btn-row">
+            <button class="btn-primary" onclick="convert('auto')">智能转换</button>
+            <button class="btn-outline" onclick="convert('md2csv')">Markdown → CSV</button>
+            <button class="btn-outline" onclick="convert('csv2md')">CSV → Markdown</button>
+            <button class="btn-success" onclick="copyOutput()">复制结果</button>
+            <button class="btn-danger btn-sm" onclick="clearAll()">清空</button>
+            <span style="display:flex; gap:6px; align-items:center; font-size:13px; color:#888;">
+                CSV 分隔符:
+                <select id="csvDelim">
+                    <option value="auto" selected>自动</option>
+                    <option value=",">逗号</option>
+                    <option value="\t">Tab</option>
+                    <option value=";">分号</option>
+                </select>
+            </span>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>输出</h3>
+                <span class="badge" id="statusBadge"></span>
+            </div>
+            <div class="editor-wrap">
+                <div class="line-numbers" id="outputLines"><div>1</div></div>
+                <textarea id="output" readonly placeholder="转换结果将显示在这里..."></textarea>
+            </div>
+        </div>
+
+        <div class="info-text" style="text-align:center;">
+            支持 ``` 围栏包裹的表格 · 单元格内竖线转义 · CSV 引号/换行字段 · Markdown 首行为表头
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        function setStatus(ok, msg) {
+            var b = $('statusBadge');
+            b.textContent = msg;
+            b.className = 'badge ' + (ok ? 'badge-ok' : 'badge-err');
+        }
+
+        // ---- Markdown 表格解析 ----
+        function isSepLine(line) {
+            return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/.test(line);
+        }
+
+        function splitMdRow(line) {
+            var s = line.trim();
+            if (s.charAt(0) === '|') s = s.slice(1);
+            if (s.charAt(s.length - 1) === '|' && s.charAt(s.length - 2) !== '\\') s = s.slice(0, -1);
+            var cells = [], cur = '', esc = false;
+            for (var i = 0; i < s.length; i++) {
+                var c = s.charAt(i);
+                if (esc) { cur += c; esc = false; }
+                else if (c === '\\') esc = true;
+                else if (c === '|') { cells.push(cur.trim()); cur = ''; }
+                else cur += c;
+            }
+            cells.push(cur.trim());
+            return cells;
+        }
+
+        // 解析成功返回行数组（含表头），失败返回 null；自动寻找最长的连续表格行
+        function parseMarkdownTable(text) {
+            var t = text.trim();
+            // 去掉 ``` 围栏
+            if (t.indexOf('```') === 0) {
+                var nl = t.indexOf('\n');
+                if (nl > 0) t = t.slice(nl + 1);
+                if (t.lastIndexOf('```') >= 0) t = t.slice(0, t.lastIndexOf('```'));
+            }
+            var lines = t.split('\n');
+            var best = [];
+            var cur = [];
+            for (var i = 0; i < lines.length; i++) {
+                if (lines[i].indexOf('|') >= 0 && lines[i].trim()) cur.push(lines[i]);
+                else { if (cur.length > best.length) best = cur; cur = []; }
+            }
+            if (cur.length > best.length) best = cur;
+            if (best.length < 2) return null;
+
+            var rows = [];
+            for (var i = 0; i < best.length; i++) {
+                if (isSepLine(best[i])) continue;
+                rows.push(splitMdRow(best[i]));
+            }
+            if (!rows.length) return null;
+            var max = Math.max.apply(null, rows.map(function (r) { return r.length; }));
+            rows.forEach(function (r) { while (r.length < max) r.push(''); });
+            return rows;
+        }
+
+        // ---- CSV 解析 ----
+        function parseCsv(text, delim) {
+            var rows = [], row = [], field = '', inQ = false;
+            for (var i = 0; i < text.length; i++) {
+                var c = text.charAt(i);
+                if (inQ) {
+                    if (c === '"') {
+                        if (text.charAt(i + 1) === '"') { field += '"'; i++; }
+                        else inQ = false;
+                    } else field += c;
+                } else if (c === '"') inQ = true;
+                else if (c === delim) { row.push(field); field = ''; }
+                else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+                else if (c !== '\r') field += c;
+            }
+            if (field !== '' || row.length) { row.push(field); rows.push(row); }
+            return rows;
+        }
+
+        function csvCell(s, delim) {
+            s = String(s);
+            if (s.indexOf('"') >= 0 || s.indexOf('\n') >= 0 || s.indexOf('\r') >= 0 || s.indexOf(delim) >= 0)
+                return '"' + s.replace(/"/g, '""') + '"';
+            return s;
+        }
+
+        // ---- 方向检测 ----
+        function detectCsvDelim(text) {
+            var cands = [',', '\t', ';'];
+            for (var i = 0; i < cands.length; i++) {
+                var rows = parseCsv(text, cands[i]);
+                if (rows.length < 2 || rows[0].length < 2) continue;
+                var ok = rows.every(function (r) { return r.length === rows[0].length; });
+                if (ok) return cands[i];
+            }
+            return null;
+        }
+
+        function detectFormat(text) {
+            var t = text.trim();
+            if (!t) return null;
+            var lines = t.split('\n').filter(function (l) { return l.trim(); });
+            var mdLines = lines.filter(function (l) { return l.indexOf('|') >= 0; }).length;
+            if (mdLines >= 2 && lines.some(isSepLine)) return 'md';
+            if (mdLines >= 2 && parseMarkdownTable(t)) return 'md';
+            if (detectCsvDelim(t)) return 'csv';
+            return null;
+        }
+
+        // ---- 转换 ----
+        function mdToCsv(text, delim) {
+            var rows = parseMarkdownTable(text);
+            if (!rows) throw new Error('未找到有效的 Markdown 表格');
+            return rows.map(function (r) {
+                return r.map(function (c) { return csvCell(c, delim); }).join(delim);
+            }).join('\n');
+        }
+
+        function mdEscape(s) {
+            return String(s).replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>');
+        }
+
+        function csvToMd(text, delim) {
+            var d = delim || detectCsvDelim(text);
+            if (!d) throw new Error('无法识别 CSV 分隔符');
+            var rows = parseCsv(text, d);
+            rows = rows.filter(function (r, i) { return !(r.length === 1 && r[0] === '' && i === rows.length - 1); });
+            if (!rows.length || rows[0].length < 1) throw new Error('未找到有效的 CSV 内容');
+            var cols = Math.max.apply(null, rows.map(function (r) { return r.length; }));
+
+            function line(cells) {
+                var arr = cells.slice();
+                while (arr.length < cols) arr.push('');
+                return '| ' + arr.map(mdEscape).join(' | ') + ' |';
+            }
+            var out = [line(rows[0]), '| ' + new Array(cols + 1).join('--- | ').slice(0, -1)];
+            for (var i = 1; i < rows.length; i++) out.push(line(rows[i]));
+            return out.join('\n');
+        }
+
+        function convert(mode) {
+            var raw = $('input').value;
+            if (!raw.trim()) { showToast('请输入内容'); return; }
+            var delimOpt = $('csvDelim').value;
+            var delim = (delimOpt === 'auto' || !delimOpt) ? ',' : delimOpt;
+            try {
+                var out = '', from = '', to = '';
+                if (mode === 'md2csv' || (mode === 'auto' && detectFormat(raw) === 'md')) {
+                    out = mdToCsv(raw, delim);
+                    from = 'Markdown'; to = delim === '\t' ? 'TSV' : 'CSV';
+                } else if (mode === 'csv2md' || (mode === 'auto' && detectFormat(raw) === 'csv')) {
+                    var d = (delimOpt === 'auto' || !delimOpt) ? detectCsvDelim(raw) : delim;
+                    if (!d) throw new Error('无法识别 CSV 分隔符');
+                    out = csvToMd(raw, d);
+                    from = d === '\t' ? 'TSV' : 'CSV'; to = 'Markdown';
+                } else {
+                    throw new Error('无法识别输入格式：既不是 Markdown 表格，也不是规则分列的 CSV');
+                }
+                $('output').value = out;
+                updateLineNumbers($('output'), $('outputLines'));
+                setStatus(true, from + ' → ' + to + ' · ' + out.split('\n').length + ' 行');
+            } catch (e) {
+                setStatus(false, e.message);
+            }
+        }
+
+        function copyOutput() {
+            var text = $('output').value;
+            if (!text) { showToast('没有可复制的内容'); return; }
+            navigator.clipboard.writeText(text).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        function clearAll() {
+            $('input').value = '';
+            $('output').value = '';
+            $('statusBadge').textContent = '';
+            $('statusBadge').className = 'badge';
+            updateLineNumbers($('input'), $('inputLines'));
+            updateLineNumbers($('output'), $('outputLines'));
+            updateSize('input', 'sizeBadge');
+        }
+
+        bindEditor('input', 'inputLines', 'sizeBadge');
+        bindEditor('output', 'outputLines');
+    </script>
+</body>
+</html>

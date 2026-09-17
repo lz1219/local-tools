@@ -12,6 +12,8 @@
 | 节点链接解析 | [node/node.html](node/node.html) | vmess / trojan / ss / ssr 链接解析编辑与重新生成 |
 | 文本对比 Diff | [diff/diff.html](diff/diff.html) | 逐行对比，高亮增删，统计差异 |
 | 时间戳转换 | [time/time.html](time/time.html) | 时间戳与日期互转，秒/毫秒自动识别 |
+| 图片处理 | [img/img.html](img/img.html) | 本地压缩、缩放、格式转换，支持拖拽与粘贴截图 |
+| Markdown 表格 ↔ CSV | [table/table.html](table/table.html) | Markdown 表格与 CSV/TSV 互转，自动识别方向 |
 
 ## 使用方式
 
