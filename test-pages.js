@@ -562,6 +562,22 @@ function finish() {
     }));
     check('猎户座中文名', SD.lines.Ori && SD.lines.Ori.zh === '猎户座');
     check('亮星中文别名', SD.starZh['Sirius'] === '天狼星' && SD.starZh['Vega'] === '织女星');
+    // 相机飞行（缓动 + FOV 冲刺）、星座归属匹配（悬停点亮用）
+    check('缓动端点与中点', ctx.easeInOutCubic(0) === 0 && ctx.easeInOutCubic(1) === 1 &&
+        Math.abs(ctx.easeInOutCubic(0.5) - 0.5) < 1e-9 && ctx.easeInOutCubic(0.25) < 0.25);
+    const fl = { y0: 350, p0: 10, f0: 75, y1: 10, p1: 30, f1: 60, t0: 1000, dur: 500, punch: 8 };
+    const fMid = ctx.stepFly(fl, 1250);
+    check('飞行中点朝向目标一半', Math.abs(((fMid.yaw % 360) + 360) % 360 - 0) < 1e-9 &&
+        Math.abs(fMid.pitch - 20) < 1e-9 && !fMid.done);
+    const fIn = ctx.stepFly(fl, 1100);
+    check('飞行中途 FOV 内收（冲刺感）', fIn.fov < 75 - 1 && fIn.fov > 60);
+    const fEnd = ctx.stepFly(fl, 1600);
+    check('飞行结束精确到位', fEnd.done && Math.abs(((fEnd.yaw % 360) + 360) % 360 - 10) < 1e-9 &&
+        Math.abs(fEnd.pitch - 30) < 1e-9 && Math.abs(fEnd.fov - 60) < 1e-9);
+    const nameIdx = {};
+    Object.keys(SD.starNames).forEach(i => { nameIdx[SD.starNames[i]] = +i; });
+    const starCon = ctx.buildStarCon(SD.stars, SD.lines);
+    check('亮星归属星座可匹配', starCon[nameIdx['Betelgeuse']] === 'Ori' && starCon[nameIdx['Polaris']] === 'UMi');
 }
 
 // ---- winupdate.html ----

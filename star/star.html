@@ -20,6 +20,7 @@
         }
         .head-info .place { font-size: 20px; font-weight: 300; letter-spacing: 2px; }
         .head-info .meta { margin-top: 6px; font-size: 12px; color: rgba(170, 190, 230, 0.65); letter-spacing: 1px; }
+        .head-info .view { margin-top: 4px; font-size: 12px; color: rgba(143, 224, 255, 0.75); letter-spacing: 1px; }
         .head-info .hint { margin-top: 4px; font-size: 11px; color: rgba(140, 160, 205, 0.45); }
 
         .legend {
@@ -42,11 +43,31 @@
         .hover-info .tt-d { font-size: 11px; color: rgba(165, 188, 230, 0.85); }
 
         .side {
-            width: 316px; flex-shrink: 0; overflow-y: auto; z-index: 4;
+            width: 316px; flex-shrink: 0; overflow-y: auto; overflow-x: hidden; z-index: 4;
             background: rgba(15, 25, 40, 0.42); border-left: 1px solid rgba(255, 255, 255, 0.1);
             padding: 18px 18px 30px; color: rgba(215, 227, 252, 0.92);
             backdrop-filter: blur(20px);
+            transition: width 0.38s cubic-bezier(0.65, 0, 0.35, 1), padding 0.38s cubic-bezier(0.65, 0, 0.35, 1),
+                        border-color 0.38s;
         }
+        .side.collapsed { width: 0; padding-left: 0; padding-right: 0; border-left-color: transparent; }
+
+        #panelToggle {
+            position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 6;
+            width: 26px; height: 58px; padding: 0;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(10, 18, 32, 0.62); color: #8fe0ff; cursor: pointer;
+            border: 1px solid rgba(56, 189, 248, 0.4); border-right: none;
+            border-radius: 10px 0 0 10px;
+            backdrop-filter: blur(12px); font-family: inherit;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        #panelToggle svg { transition: transform 0.32s; }
+        #panelToggle:hover {
+            background: rgba(56, 189, 248, 0.16);
+            box-shadow: 0 0 18px rgba(56, 189, 248, 0.4);
+        }
+        .side.collapsed ~ #panelToggle svg { transform: rotate(180deg); }
         .side h2 { font-size: 15px; font-weight: 600; letter-spacing: 3px; margin-bottom: 2px; }
         .side .sub { font-size: 11px; color: rgba(150, 170, 215, 0.55); margin-bottom: 14px; }
         .sec { margin-bottom: 16px; }
@@ -139,7 +160,20 @@
         .custom-latlon.show { display: block; }
         @media (max-width: 900px) {
             .layout { flex-direction: column; }
-            .side { width: auto; border-left: none; border-top: 1px solid rgba(110,150,230,0.14); }
+            .side {
+                width: auto; border-left: none; border-top: 1px solid rgba(110,150,230,0.14);
+                transition: height 0.38s cubic-bezier(0.65, 0, 0.35, 1), padding 0.38s cubic-bezier(0.65, 0, 0.35, 1),
+                            border-color 0.38s;
+            }
+            .side.collapsed { width: auto; height: 0; padding-top: 0; padding-bottom: 0; border-top-color: transparent; }
+            #panelToggle {
+                top: auto; bottom: 0; right: 16px; transform: none;
+                width: 58px; height: 26px;
+                border-radius: 10px 10px 0 0;
+                border-right: 1px solid rgba(56, 189, 248, 0.4); border-bottom: none;
+            }
+            #panelToggle svg { transform: rotate(-90deg); }
+            .side.collapsed ~ #panelToggle svg { transform: rotate(90deg); }
         }
     </style>
 </head>
@@ -150,7 +184,8 @@
             <div class="head-info">
                 <div class="place" id="headPlace">--</div>
                 <div class="meta" id="headMeta">--</div>
-                <div class="hint">拖动旋转天空 · 滚轮/双指缩放 · 双击对准 · 悬停查看每颗星的位置</div>
+                <div class="view" id="headView"></div>
+                <div class="hint">拖动旋转天空 · 滚轮/双指缩放 · 双击飞行对准 · 悬停点亮星座</div>
             </div>
             <div class="legend">
                 <div><i>·</i>恒星（颜色代表表面温度，越大越亮）</div>
@@ -220,6 +255,9 @@
                 <button class="mini-btn" id="fullBtn">全屏观看</button>
             </div>
         </div>
+        <button id="panelToggle" aria-label="收起面板" title="收起面板">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M14.5 5.5 8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
     </div>
     <div id="toast" style="display:none"></div>
 
@@ -442,6 +480,66 @@
         }
 
         function wrapDeltaDeg(d) { return ((d % 360) + 540) % 360 - 180; }
+
+        function easeInOutCubic(t) {
+            t = clamp01(t);
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        // 相机飞行：yaw 走最短路径，中途 FOV 内收营造"冲过去"的速度感（纯函数，可测）
+        function stepFly(f, nowMs) {
+            var e = easeInOutCubic((nowMs - f.t0) / f.dur);
+            return {
+                yaw: f.y0 + wrapDeltaDeg(f.y1 - f.y0) * e,
+                pitch: f.p0 + (f.p1 - f.p0) * e,
+                fov: Math.max(15, Math.min(118, f.f0 + (f.f1 - f.f0) * e - f.punch * Math.sin(Math.PI * e))),
+                done: nowMs - f.t0 >= f.dur
+            };
+        }
+
+        function flyTo(yaw, pitch, fov, durMs) {
+            fly = {
+                y0: view.yaw, p0: view.pitch, f0: view.fov,
+                y1: view.yaw + wrapDeltaDeg(yaw - view.yaw),
+                p1: Math.max(-89, Math.min(89, pitch)),
+                f1: Math.max(15, Math.min(110, fov)),
+                t0: Date.now(), dur: durMs || 650,
+                punch: Math.max(6, view.fov * 0.1)
+            };
+            vel.x = 0; vel.y = 0;
+            userInteracted = true; introT = 1;
+        }
+
+        // 星座折线端点 → 星表索引（按角距就近匹配，悬停点亮星座用），纯函数
+        function buildStarCon(stars, lines) {
+            var map = {};
+            for (var id in lines) {
+                var polys = lines[id].polys;
+                for (var k = 0; k < polys.length; k++) {
+                    var flat = polys[k];
+                    for (var j = 0; j < flat.length; j += 2) {
+                        var ra = flat[j], dec = flat[j + 1];
+                        var best = -1, bd = 0.35; // 端点与星表坐标容差 0.35°
+                        for (var i = 0; i < stars.length; i++) {
+                            var dRa = Math.abs((((ra - stars[i][0]) % 360) + 540) % 360 - 180);
+                            var d = Math.sqrt(dRa * dRa + (dec - stars[i][1]) * (dec - stars[i][1]));
+                            if (d < bd) { bd = d; best = i; }
+                        }
+                        if (best >= 0) map[best] = id;
+                    }
+                }
+            }
+            return map;
+        }
+
+        var starConCache = null;
+        function starConOf(idx) {
+            if (!starConCache) {
+                var data = (typeof STAR_DATA !== 'undefined') ? STAR_DATA : { stars: [], lines: {} };
+                starConCache = buildStarCon(data.stars, data.lines);
+            }
+            return starConCache[idx];
+        }
 
         // 拖动映射：向右拖=天球随光标右移（grab 手感），向下拖=天空下移
         function applyDrag(view, dx, dy, hPx) {
@@ -714,6 +812,7 @@
         var frameCands = [], placedLabels = [];
         var camNow = null, kNow = 0, fovNow = 75, zsc = 1;
         var meteors = [], lastFrameMs = 0, dragFov = 0;
+        var fly = null, hoverConId = '', lastViewUpd = 0;
 
         function bvColor(bv) {
             if (bv <= -0.05) return '#cfe0ff';
@@ -948,9 +1047,23 @@
             camNow = camBasis(view.yaw, view.pitch);
             kNow = (H / 2) / Math.tan(fovNow * D2R / 2);
             zsc = Math.min(2.2, Math.max(0.7, Math.sqrt(Math.tan(75 * D2R / 2) / Math.tan(fovNow * D2R / 2))));
+            // 快速拖动/甩动时进入"曲速"状态：恒星拖出短光线（位置 = 数帧前的相机投影）
+            var warpK = clamp01((speed - 0.3) / 1.0);
+            var prevCam = null;
+            if (warpK > 0.03) {
+                prevCam = camBasis(view.yaw - vel.x * 4,
+                    Math.max(-89, Math.min(89, view.pitch - vel.y * 4)));
+            }
             var t = curTimeMs();
             var dtMs = Math.min(100, Math.max(0, t - lastFrameMs));
             lastFrameMs = t;
+            // 朝向/视场读数（约 5 次/秒，避免每帧写 DOM）
+            if (t - lastViewUpd > 200) {
+                lastViewUpd = t;
+                var hv = document.getElementById('headView');
+                if (hv) hv.textContent = '朝向 ' + azText(view.yaw) + ' · 视场 ' + Math.round(view.fov) + '°' +
+                    (warpK > 0.03 ? ' · 曲速中' : '');
+            }
             var dayK = clamp01((cache.sunAlt + 3) / 7);
             var darkK = 1 - dayK;
             frameCands = [];
@@ -1048,11 +1161,13 @@
                 var dashOff = -((t / 45) % 22);
                 for (var c = 0; c < cache.consts.length; c++) {
                     var con = cache.consts[c];
-                    for (var k = 0; k < con.polys.length; k++) {
-                        var poly = con.polys[k];
-                        // 底层辉光（实线、粗、极淡）
-                        ctx.strokeStyle = 'rgba(88,199,255,0.08)';
-                        ctx.lineWidth = 4.5;
+                for (var k = 0; k < con.polys.length; k++) {
+                    var poly = con.polys[k];
+                    // 悬停的恒星所属星座：整条连线点亮为实心高亮
+                    var hl = hoverConId && con.id === hoverConId;
+                    // 底层辉光（实线、粗、极淡）
+                    ctx.strokeStyle = hl ? 'rgba(120,225,255,0.32)' : 'rgba(88,199,255,0.08)';
+                    ctx.lineWidth = hl ? 6.5 : 4.5;
                         ctx.setLineDash([]);
                         ctx.beginPath();
                         var prev2 = projectVec(poly.vecs[0], camNow, W, H, fovNow);
@@ -1066,9 +1181,9 @@
                         }
                         ctx.stroke();
                         // 流动虚线主层
-                        ctx.strokeStyle = 'rgba(96,205,255,0.42)';
-                        ctx.lineWidth = 1.2;
-                        ctx.setLineDash([7, 8]);
+                        ctx.strokeStyle = hl ? 'rgba(150,235,255,0.95)' : 'rgba(96,205,255,0.42)';
+                        ctx.lineWidth = hl ? 1.9 : 1.2;
+                        ctx.setLineDash(hl ? [] : [7, 8]);
                         ctx.lineDashOffset = dashOff;
                         ctx.beginPath();
                         prev2 = projectVec(poly.vecs[0], camNow, W, H, fovNow);
@@ -1118,6 +1233,19 @@
                 ctx.globalAlpha = alpha * twk;
                 var hw = spr.width / 2;
                 ctx.drawImage(spr, pr3.x - hw, pr3.y - hw);
+                // 曲速拖尾：向数帧前的投影位置拉短光线
+                if (prevCam) {
+                    var prW = projectVec(s.v, prevCam, W, H, fovNow);
+                    if (prW) {
+                        ctx.globalAlpha = alpha * twk * warpK * 0.5;
+                        ctx.strokeStyle = color;
+                        ctx.lineWidth = Math.max(0.5, size * 0.45);
+                        ctx.beginPath();
+                        ctx.moveTo(prW.x, prW.y);
+                        ctx.lineTo(pr3.x, pr3.y);
+                        ctx.stroke();
+                    }
+                }
                 // 一等亮星：屏幕对齐衍射芒（随闪烁呼吸）
                 if (s.mag <= 0.5 && s.alt > 3) {
                     var L = size * 4.5 + 6;
@@ -1544,6 +1672,7 @@
             if (mouse.x < 0 || dragging) {
                 hoverEl.classList.remove('show');
                 lastTipKey = '';
+                hoverConId = '';
                 return;
             }
             var best = null, bd = 16;
@@ -1556,9 +1685,11 @@
 
             var html = '', key = '';
             if (best) {
+                hoverConId = '';
                 key = best.kind + (best.ref.idx !== undefined ? best.ref.idx : best.ref.key || best.ref.name);
                 if (best.kind === 'star') {
                     var s = best.ref;
+                    hoverConId = starConOf(s.idx) || '';
                     var data = (typeof STAR_DATA !== 'undefined') ? STAR_DATA : { stars: [], starNames: {}, starZh: {} };
                     var ra = data.stars[s.idx][0], dec = data.stars[s.idx][1];
                     var nm = data.starNames[s.idx];
@@ -1666,6 +1797,15 @@
         // ================= 视角运动：开场动画 / 惯性 / 闲置慢转 =================
 
         function handleMotion(now) {
+            if (fly) {
+                var fs = stepFly(fly, now);
+                view.yaw = ((fs.yaw % 360) + 360) % 360;
+                view.pitch = fs.pitch;
+                view.fov = fs.fov;
+                if (fs.done) fly = null;
+                lastInteract = now;
+                return;
+            }
             if (!userInteracted && introT < 1) {
                 introT = Math.min(1, introT + 0.014);
                 var e = 1 - Math.pow(1 - introT, 3);
@@ -1695,6 +1835,27 @@
         }
 
         function bindUI() {
+            // ---- 面板收起/展开（状态持久化） ----
+            var side = document.querySelector('.side');
+            var pToggle = document.getElementById('panelToggle');
+            var savedPanel = null;
+            try { savedPanel = localStorage.getItem('star.panel'); } catch (err) {}
+            if (savedPanel === '0') {
+                side.classList.add('collapsed');
+                pToggle.setAttribute('aria-label', '展开面板');
+                pToggle.title = '展开面板';
+            }
+            pToggle.addEventListener('click', function () {
+                var collapsed = side.classList.toggle('collapsed');
+                pToggle.setAttribute('aria-label', collapsed ? '展开面板' : '收起面板');
+                pToggle.title = collapsed ? '展开面板' : '收起面板';
+                try { localStorage.setItem('star.panel', collapsed ? '0' : '1'); } catch (err) {}
+                resize();
+            });
+            side.addEventListener('transitionend', function (e) {
+                if (e.propertyName === 'width' || e.propertyName === 'height') resize();
+            });
+
             var sel = document.getElementById('citySel');
             CITIES.forEach(function (c, i) {
                 var opt = document.createElement('option');
@@ -1771,9 +1932,7 @@
             });
 
             document.getElementById('resetBtn').addEventListener('click', function () {
-                view.yaw = 180; view.pitch = 18; view.fov = 75;
-                vel.x = 0; vel.y = 0;
-                userInteracted = true; introT = 1;
+                flyTo(180, 18, 75, 750);
                 showToast('视角已复位');
             });
 
@@ -1786,6 +1945,7 @@
             pointers = new Map();
 
             canvas.addEventListener('pointerdown', function (e) {
+                fly = null;
                 userInteracted = true; introT = 1;
                 lastInteract = Date.now();
                 canvas.classList.add('grabbing');
@@ -1840,6 +2000,7 @@
 
             canvas.addEventListener('wheel', function (e) {
                 e.preventDefault();
+                fly = null;
                 userInteracted = true; introT = 1;
                 lastInteract = Date.now();
                 zoomFov(view, e.deltaY > 0 ? 6 : -6);
@@ -1849,10 +2010,7 @@
                 var rect = canvas.getBoundingClientRect();
                 var dir = screenToAltAz(e.clientX - rect.left, e.clientY - rect.top,
                     camBasis(view.yaw, view.pitch), W, H, view.fov);
-                view.yaw = dir.az;
-                view.pitch = Math.max(-89, Math.min(89, dir.alt));
-                vel.x = 0; vel.y = 0;
-                userInteracted = true; introT = 1;
+                flyTo(dir.az, dir.alt, view.fov, 700);
                 lastInteract = Date.now();
                 showToast('已对准 ' + azText(dir.az) + ' · 高度 ' + Math.round(dir.alt) + '°');
             });
@@ -1871,6 +2029,10 @@
             hoverEl = document.getElementById('hoverInfo');
             resize();
             bindUI();
+            // 面板收起动画/窗口变化都会改变画布尺寸，统一由 ResizeObserver 兜底
+            if (typeof ResizeObserver !== 'undefined') {
+                try { new ResizeObserver(resize).observe(canvas.parentElement); } catch (err) {}
+            }
             requestAnimationFrame(loop);
         }
 
