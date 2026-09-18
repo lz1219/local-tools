@@ -8,6 +8,24 @@
     <style>
         .tools-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
+        /* 左右双栏工作台 */
+        .container { max-width: 1480px; }
+        .io-workspace { display: flex; gap: 16px; align-items: stretch; }
+        .io-workspace > .panel { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .io-workspace .panel-header { flex-shrink: 0; }
+        .io-workspace .editor-wrap,
+        .io-workspace .tree-wrap {
+            flex: 1; height: auto; min-height: 340px;
+            height: calc(100vh - 300px);
+        }
+        .io-workspace .error-detail { flex-shrink: 0; }
+        .io-workspace .summary-bar { flex-shrink: 0; }
+        @media (max-width: 900px) {
+            .io-workspace { flex-direction: column; }
+            .io-workspace .editor-wrap,
+            .io-workspace .tree-wrap { height: 320px; }
+        }
+
         /* tree view */
         .tree-wrap {
             border: 1px solid #dde1e6;
@@ -22,7 +40,7 @@
             font-size: 13px;
             line-height: 24px;
         }
-        .tree-node {
+        .tree-line {
             padding: 0 16px 0 0;
             white-space: nowrap;
         }
@@ -84,61 +102,61 @@
         <h1>JSON 序列化工具</h1>
         <p class="subtitle">格式化 / 压缩 / 校验 / 转义 / 折叠浏览</p>
 
-        <div class="panel">
-            <div class="panel-header">
-                <h3>输入</h3>
-                <div style="display:flex; gap:8px; align-items:center;">
-                    <span class="badge badge-info" id="sizeBadge"></span>
-                    <button class="btn-outline btn-sm" onclick="loadSample()">示例数据</button>
-                </div>
-            </div>
-            <div class="editor-wrap">
-                <div class="line-numbers" id="inputLines"><div>1</div></div>
-                <textarea id="input" placeholder='粘贴 JSON 字符串，例如：{"name":"张三","age":28}'></textarea>
-            </div>
-            <div class="error-detail" id="errorDetail"></div>
-        </div>
-
-        <div class="btn-row">
+        <div class="btn-row" style="margin-top:14px;">
             <button class="btn-primary" onclick="format()">格式化</button>
             <button class="btn-warning" onclick="minify()">压缩</button>
             <button class="btn-success" onclick="validate()">校验</button>
             <button class="btn-outline" onclick="escapeJson()">转义</button>
             <button class="btn-outline" onclick="unescapeJson()">反转义</button>
-            <button class="btn-outline" onclick="copyInput()">复制输入</button>
-            <button class="btn-danger btn-sm" onclick="clearAll()">清空</button>
-        </div>
-
-        <div class="tools-row">
+            <span style="flex:1"></span>
             <span style="font-size:13px; color:#888;">缩进:</span>
             <select class="indent-select" id="indentSelect">
                 <option value="2" selected>2 空格</option>
                 <option value="4">4 空格</option>
                 <option value="tab">Tab</option>
             </select>
-            <div class="view-toggle">
+            <div class="view-toggle" style="margin-left:0;">
                 <button id="btnTreeView" class="active" onclick="switchView('tree')">折叠视图</button>
                 <button id="btnTextView" onclick="switchView('text')">文本视图</button>
             </div>
             <button class="btn-outline btn-sm" onclick="expandAll()">全部展开</button>
             <button class="btn-outline btn-sm" onclick="collapseAll()">全部折叠</button>
+            <button class="btn-outline" onclick="copyInput()">复制输入</button>
+            <button class="btn-outline" onclick="copyOutput()">复制结果</button>
+            <button class="btn-danger btn-sm" onclick="clearAll()">清空</button>
         </div>
 
-        <div class="panel" style="margin-top:20px;">
-            <div class="panel-header">
-                <h3>输出</h3>
-                <div style="display:flex; gap:8px; align-items:center;">
-                    <span class="badge" id="statusBadge"></span>
-                    <button class="btn-outline btn-sm" onclick="copyOutput()">复制结果</button>
+        <div class="io-workspace">
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>输入</h3>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <span class="badge badge-info" id="sizeBadge"></span>
+                        <button class="btn-outline btn-sm" onclick="loadSample()">示例数据</button>
+                    </div>
                 </div>
+                <div class="editor-wrap">
+                    <div class="line-numbers" id="inputLines"><div>1</div></div>
+                    <textarea id="input" wrap="off" placeholder='粘贴 JSON 字符串，例如：{"name":"张三","age":28}'></textarea>
+                </div>
+                <div class="error-detail" id="errorDetail"></div>
             </div>
-            <div class="summary-bar" id="summaryBar"></div>
-            <div class="tree-wrap" id="treeView">
-                <div class="tree-content" id="treeContent"></div>
-            </div>
-            <div class="editor-wrap" id="textView" style="height:420px; display:none;">
-                <div class="line-numbers" id="outputLines"><div>1</div></div>
-                <textarea id="output" readonly placeholder="处理结果将显示在这里..."></textarea>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>输出</h3>
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <span class="badge" id="statusBadge"></span>
+                    </div>
+                </div>
+                <div class="summary-bar" id="summaryBar"></div>
+                <div class="tree-wrap" id="treeView">
+                    <div class="tree-content" id="treeContent"></div>
+                </div>
+                <div class="editor-wrap" id="textView" style="display:none;">
+                    <div class="line-numbers" id="outputLines"><div>1</div></div>
+                    <textarea id="output" wrap="off" readonly placeholder="处理结果将显示在这里..."></textarea>
+                </div>
             </div>
         </div>
 
