@@ -193,6 +193,19 @@ function finish() {
     const reVless = ctx.parseLink(out[4]);
     check('vless 生成回环', reVless.id === '2a1c1b35-6b5a-4f7c-9e0d-1a2b3c4d5e6f' && reVless.host === 'e.example.com' &&
         reVless.query.includes('security=reality') && reVless.name === 'VLESS节点');
+    // query 参数：成对解析 / 委托编辑（值编码）/ 点击删除与新增
+    check('query 成对解析', JSON.stringify(ctx.parseQuery('a=1&b=&c')) === JSON.stringify([['a', '1'], ['b', ''], ['c', '']]));
+    check('query 设值保序', ctx.setQueryParam('a=1&b=2', 'a', '9') === 'a=9&b=2' && ctx.setQueryParam('a=1', 'c', '3') === 'a=1&c=3');
+    check('query 删除参数', ctx.removeQueryParam('a=1&b=2&a=3', 'a') === 'b=2');
+    inputFns.forEach(fn => fn({ target: { dataset: { f: 'query', k: 'fp' }, value: 'safari', closest: () => ({ dataset: { i: '4' } }) } }));
+    check('委托改 query 参数', ctx.nodes[4].query.includes('fp=safari') && !ctx.nodes[4].query.includes('fp=chrome'));
+    inputFns.forEach(fn => fn({ target: { dataset: { f: 'query', k: 'path' }, value: '/ws path', closest: () => ({ dataset: { i: '4' } }) } }));
+    check('query 特殊字符编码', ctx.nodes[4].query.includes('path=' + encodeURIComponent('/ws path')));
+    const clickFns = listeners['nodes:click'] || [];
+    clickFns.forEach(fn => fn({ target: { closest: (sel) => sel === '.node-card' ? { dataset: { i: '4' } } : (sel === '.qp-del' ? { dataset: { k: 'path' } } : null) } }));
+    check('点击删除 query 参数', !ctx.nodes[4].query.includes('path='));
+    clickFns.forEach(fn => fn({ target: { closest: (sel) => sel === '.node-card' ? { dataset: { i: '4' }, querySelector: (s) => s === '.qp-k' ? { value: 'allowInsecure' } : { value: '1' } } : (sel === '.qp-add' ? {} : null) } }));
+    check('点击添加 query 参数', ctx.nodes[4].query.includes('allowInsecure=1'));
     let threw = false;
     try { ctx.parseLink('ftp://x'); } catch (e) { threw = true; }
     check('非法链接报错', threw);

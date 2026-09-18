@@ -31,6 +31,9 @@
         }
         .node-card .panel-header h3 { display: flex; gap: 8px; align-items: center; }
         .card-title-text { font-size: 13px; color: #888; font-weight: 400; }
+        .qp-ctl { display: flex; gap: 6px; }
+        .qp-ctl input { flex: 1; min-width: 0; }
+        .qp-ctl .qp-k { flex: 0 0 88px; }
     </style>
 </head>
 <body>
@@ -190,6 +193,31 @@
             };
         }
 
+        // ---- query 参数串（成对解析/编辑，纯函数，可测） ----
+        function parseQuery(q) {
+            if (!q) return [];
+            return q.split('&').map(function (p) {
+                var i = p.indexOf('=');
+                return i < 0 ? [p, ''] : [p.slice(0, i), p.slice(i + 1)];
+            });
+        }
+
+        // 改某个参数的值（不存在则追加），其余参数原样保留
+        function setQueryParam(q, k, v) {
+            var found = false;
+            var parts = parseQuery(q).map(function (p) {
+                if (p[0] === k) { found = true; return [k, v]; }
+                return p;
+            });
+            if (!found) parts.push([k, v]);
+            return parts.map(function (p) { return p[0] + '=' + p[1]; }).join('&');
+        }
+
+        function removeQueryParam(q, k) {
+            return parseQuery(q).filter(function (p) { return p[0] !== k; })
+                .map(function (p) { return p[0] + '=' + p[1]; }).join('&');
+        }
+
         function parseLink(line) {
             line = line.trim();
             if (!line) return null;
@@ -241,11 +269,16 @@
         // ---- UI ----
         var FIELD_MAP = {
             vmess: [['ps', '名称'], ['add', '地址'], ['port', '端口'], ['id', 'ID'], ['aid', 'AlterId'], ['scy', '加密'], ['net', '传输'], ['type', '伪装'], ['host', 'Host'], ['path', '路径'], ['tls', 'TLS'], ['sni', 'SNI']],
-            vless: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['id', 'ID'], ['query', '参数 (query)']],
-            trojan: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['password', '密码'], ['query', '参数 (query)']],
-            ss: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['method', '加密'], ['password', '密码'], ['query', '参数 (query)']],
+            vless: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['id', 'ID']],
+            trojan: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['password', '密码']],
+            ss: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['method', '加密'], ['password', '密码']],
             ssr: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['protocol', '协议'], ['method', '加密'], ['obfs', '混淆'], ['password', '密码'], ['obfsparam', '混淆参数'], ['protoparam', '协议参数'], ['group', '分组']]
         };
+
+        // 协议是否带 query 参数串（vless / trojan / ss）
+        function hasQuery(node) {
+            return node._type === 'vless' || node._type === 'trojan' || node._type === 'ss';
+        }
 
         var nodes = [];
 
@@ -254,10 +287,25 @@
             return node[f] !== undefined ? String(node[f]) : '';
         }
 
+        // query 参数区：每个参数成对一字段（参数名做标签，值可编辑，可删除），末尾可加新参数
+        function queryFieldsHtml(node) {
+            if (!hasQuery(node)) return '';
+            var html = parseQuery(node.query || '').map(function (p) {
+                return '<div class="field"><label>' + esc(p[0]) + '</label><div class="qp-ctl">' +
+                    '<input type="text" data-f="query" data-k="' + esc(p[0]) + '" value="' + esc(safeDecode(p[1])) + '">' +
+                    '<button class="btn-danger btn-sm qp-del" data-k="' + esc(p[0]) + '" title="删除该参数">✕</button></div></div>';
+            }).join('');
+            return html + '<div class="field"><label>添加参数</label><div class="qp-ctl">' +
+                '<input type="text" class="qp-k" placeholder="参数名">' +
+                '<input type="text" class="qp-v" placeholder="参数值">' +
+                '<button class="btn-outline btn-sm qp-add">添加</button></div></div>';
+        }
+
         function renderNodes() {
             $('nodes').innerHTML = nodes.map(function (node, i) {
                 var fields = FIELD_MAP[node._type] || [];
                 var title = node._type === 'vmess' ? (node.obj.ps || '') : (node.name || '');
+                var paramsHtml = queryFieldsHtml(node);
                 return '<div class="panel node-card" data-i="' + i + '">' +
                     '<div class="panel-header"><h3>' +
                         '<span class="badge b-' + node._type + '">' + node._type + '</span>' +
@@ -268,7 +316,7 @@
                     fields.map(function (f) {
                         return '<div class="field"><label>' + f[1] + ' <span style="color:#ccc">' + f[0] + '</span></label>' +
                             '<input type="text" data-f="' + f[0] + '" value="' + esc(nodeField(node, f[0])) + '"></div>';
-                    }).join('') +
+                    }).join('') + paramsHtml +
                     '</div></div>';
             }).join('');
         }
@@ -279,8 +327,31 @@
             if (!t.dataset || !t.dataset.f) return;
             var card = t.closest('.node-card');
             var node = nodes[+card.dataset.i];
-            if (node._type === 'vmess') node.obj[t.dataset.f] = t.value;
+            if (t.dataset.f === 'query') {
+                node.query = setQueryParam(node.query || '', t.dataset.k, encodeURIComponent(t.value));
+            } else if (node._type === 'vmess') node.obj[t.dataset.f] = t.value;
             else node[t.dataset.f] = t.value;
+        });
+
+        // 事件委托：query 参数的删除与新增
+        $('nodes').addEventListener('click', function (e) {
+            if (!e.target.closest) return;
+            var card = e.target.closest('.node-card');
+            if (!card) return;
+            var node = nodes[+card.dataset.i];
+            var del = e.target.closest('.qp-del');
+            if (del) {
+                node.query = removeQueryParam(node.query || '', del.dataset.k);
+                renderNodes();
+                return;
+            }
+            if (e.target.closest('.qp-add')) {
+                var kEl = card.querySelector('.qp-k'), vEl = card.querySelector('.qp-v');
+                var k = kEl.value.trim();
+                if (!k) { showToast('请输入参数名'); return; }
+                node.query = setQueryParam(node.query || '', k, encodeURIComponent(vEl.value));
+                renderNodes();
+            }
         });
 
         function removeNode(i) {
