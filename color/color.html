@@ -34,12 +34,30 @@
         }
         .fmt-item:hover { border-color: #4a9eff; }
         .fmt-item .k { color: #999; font-family: 'Segoe UI', sans-serif; font-size: 12px; }
-        .palette { display: flex; gap: 6px; flex-wrap: wrap; }
+        .palette { display: flex; gap: 10px; flex-wrap: wrap; }
         .swatch {
-            width: 40px; height: 40px; border-radius: 6px; cursor: pointer;
+            width: 44px; height: 44px; border-radius: 6px; cursor: pointer;
             border: 1px solid rgba(0,0,0,0.08);
         }
         .swatch:hover { transform: scale(1.1); }
+        .sw-item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .sw-hex { font-size: 10px; color: #999; font-family: Consolas, monospace; }
+        .sw-saved { position: relative; }
+        .sw-del {
+            position: absolute; top: -7px; right: -7px; width: 16px; height: 16px;
+            border-radius: 50%; border: 1px solid #dde1e6; background: #fff; color: #c62828;
+            font-size: 11px; line-height: 1; cursor: pointer; padding: 0;
+            display: none; align-items: center; justify-content: center;
+        }
+        .sw-saved:hover .sw-del { display: flex; }
+        .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+        .chip {
+            padding: 5px 14px; border-radius: 999px; font-size: 12px; cursor: pointer;
+            border: 1px solid #dde1e6; background: #fafbfc; color: #666; font-family: inherit;
+        }
+        .chip:hover { border-color: #4a9eff; }
+        .chip.on { background: #4a9eff; border-color: #4a9eff; color: #fff; }
+        .saved-empty { font-size: 12px; color: #aaa; }
         .contrast-row { display: flex; gap: 12px; align-items: center; font-size: 13px; color: #666; flex-wrap: wrap; }
         .wcag { font-size: 12px; padding: 2px 10px; border-radius: 10px; font-weight: 600; }
         .wcag-pass { background: #e8f5e9; color: #2e7d32; }
@@ -50,12 +68,12 @@
 <body>
     <div class="container">
         <h1>颜色工具</h1>
-        <p class="subtitle">HEX / RGB / HSL 互转 · 色阶 · 对比度检查</p>
+        <p class="subtitle">HEX / RGB / HSL 互转 · 色阶 · 色彩调和 · 调色板收藏 · 对比度检查</p>
 
         <div class="panel">
             <div class="color-layout">
                 <div class="preview-col">
-                    <div class="preview-box" id="preview" onclick="copyText(current.hex)"></div>
+                    <div class="preview-box" id="preview" onclick="copyText(rgbToHex(current.r, current.g, current.b))"></div>
                     <div class="preview-tip">点击复制 HEX</div>
                 </div>
                 <div class="form-col">
@@ -93,6 +111,20 @@
         </div>
 
         <div class="panel">
+            <div class="panel-header"><h3>色彩调和</h3></div>
+            <div class="chip-row" id="harmonyTypes"></div>
+            <div class="palette" id="harmony"></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>我的调色板</h3></div>
+            <div class="palette" id="saved"></div>
+            <div style="margin-top:12px">
+                <button class="btn-outline btn-sm" onclick="saveCurrent()">收藏当前颜色</button>
+            </div>
+        </div>
+
+        <div class="panel">
             <div class="panel-header"><h3>文字对比度</h3></div>
             <div class="contrast-row">
                 <span>当前颜色上的文字可读性:</span>
@@ -114,10 +146,24 @@
         }
 
         function hexToRgb(hex) {
-            var m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+            var m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(hex.trim());
             if (!m) return null;
-            var v = parseInt(m[1], 16);
+            var s6 = m[1].length === 3 ? m[1].replace(/./g, function (ch) { return ch + ch; }) : m[1];
+            var v = parseInt(s6, 16);
             return { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 };
+        }
+
+        // 色彩调和：围绕当前色相按经典配色关系取一组 [h, s, l]（纯函数，可测）
+        function buildHarmony(h, s, l, type) {
+            var offsets =
+                type === 'comp' ? [0, 180] :
+                type === 'analog' ? [-60, -30, 0, 30, 60] :
+                type === 'triad' ? [0, 120, 240] :
+                type === 'split' ? [0, 150, 210] :
+                [0, 90, 180, 270]; // square 方形
+            return offsets.map(function (d) {
+                return [(((h + d) % 360) + 360) % 360, s, l];
+            });
         }
 
         function rgbToHsl(r, g, b) {
@@ -214,6 +260,68 @@
             var rb = contrastRatio(c, { r: 0, g: 0, b: 0 });
             $('contrastWhite').innerHTML = '白字对比度 ' + rw.toFixed(2) + ' ' + wcagTag(rw, 'AA') + ' ' + wcagTag(rw, 'AAA');
             $('contrastBlack').innerHTML = '黑字对比度 ' + rb.toFixed(2) + ' ' + wcagTag(rb, 'AA') + ' ' + wcagTag(rb, 'AAA');
+            renderHarmony();
+            renderSaved();
+        }
+
+        // ---- 色彩调和 ----
+        var harmonyType = 'analog';
+        var HARMONY_TYPES = [
+            ['analog', '类似色'], ['comp', '互补色'], ['triad', '三角色'],
+            ['split', '分裂互补'], ['square', '方形']
+        ];
+
+        function renderHarmonyTypes() {
+            $('harmonyTypes').innerHTML = HARMONY_TYPES.map(function (t) {
+                return '<button class="chip' + (t[0] === harmonyType ? ' on' : '') + '" data-type="' + t[0] + '">' + t[1] + '</button>';
+            }).join('');
+        }
+
+        function renderHarmony() {
+            var hsl = rgbToHsl(current.r, current.g, current.b);
+            $('harmony').innerHTML = buildHarmony(hsl.h, hsl.s, hsl.l, harmonyType).map(function (c) {
+                var rgb = hslToRgb(c[0], c[1], c[2]);
+                var hex = rgbToHex(rgb.r, rgb.g, rgb.b);
+                return '<div class="sw-item"><div class="swatch" style="background:' + hex + '" title="点击应用 ' + hex +
+                    '" onclick="applyHex(\'' + hex + '\')"></div><span class="sw-hex">' + hex + '</span></div>';
+            }).join('');
+        }
+
+        // ---- 我的调色板（localStorage 持久化） ----
+        function getSaved() {
+            try {
+                var a = JSON.parse(localStorage.getItem('color.saved') || '[]');
+                return Array.isArray(a) ? a : [];
+            } catch (err) { return []; }
+        }
+
+        function persistSaved(list) {
+            try { localStorage.setItem('color.saved', JSON.stringify(list)); } catch (err) {}
+        }
+
+        function saveCurrent() {
+            var hex = rgbToHex(current.r, current.g, current.b);
+            var list = getSaved();
+            if (list.indexOf(hex) !== -1) { showToast('该颜色已在调色板中'); return; }
+            list.push(hex);
+            persistSaved(list);
+            renderSaved();
+            showToast('已收藏 ' + hex);
+        }
+
+        function removeSaved(hex) {
+            persistSaved(getSaved().filter(function (x) { return x !== hex; }));
+            renderSaved();
+        }
+
+        function renderSaved() {
+            var list = getSaved();
+            $('saved').innerHTML = list.length ? list.map(function (hex) {
+                return '<div class="sw-item"><div class="swatch sw-saved" style="background:' + hex +
+                    '" title="点击应用 ' + hex + '" onclick="applyHex(\'' + hex + '\')">' +
+                    '<button class="sw-del" title="删除" onclick="event.stopPropagation(); removeSaved(\'' + hex + '\')">×</button></div>' +
+                    '<span class="sw-hex">' + hex + '</span></div>';
+            }).join('') : '<span class="saved-empty">还没有收藏颜色，调好颜色后点下方按钮收藏</span>';
         }
 
         function fmtItem(k, v) {
@@ -238,6 +346,13 @@
             crypto.getRandomValues(buf);
             setFromRgb(buf[0], buf[1], buf[2]);
         }
+
+        // 调和类型切换（委托绑定）
+        $('harmonyTypes').addEventListener('click', function (e) {
+            var t = e.target.getAttribute && e.target.getAttribute('data-type');
+            if (t) { harmonyType = t; renderHarmonyTypes(); renderHarmony(); }
+        });
+        renderHarmonyTypes();
 
         // 事件：HEX 输入
         $('hexInput').addEventListener('input', function () {

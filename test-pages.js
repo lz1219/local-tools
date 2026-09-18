@@ -417,7 +417,17 @@ function finish() {
     const { ctx } = loadPage('color/color.html');
     check('hexToRgb', JSON.stringify(ctx.hexToRgb('#4a9eff')) === JSON.stringify({ r: 74, g: 158, b: 255 }));
     check('rgbToHex 回环', ctx.rgbToHex(74, 158, 255) === '#4a9eff');
-    check('hexToRgb 非法', ctx.hexToRgb('#xyz') === null && ctx.hexToRgb('#fff') === null);
+    check('hexToRgb 非法', ctx.hexToRgb('#xyz') === null && ctx.hexToRgb('#ffff') === null);
+    check('hexToRgb 三位简写', JSON.stringify(ctx.hexToRgb('#f80')) === JSON.stringify({ r: 255, g: 136, b: 0 }) &&
+        JSON.stringify(ctx.hexToRgb('4a9eff')) === JSON.stringify({ r: 74, g: 158, b: 255 }));
+    const comp = ctx.buildHarmony(30, 80, 50, 'comp');
+    check('互补色两组对顶', comp.length === 2 && comp[0][0] === 30 && comp[1][0] === 210);
+    const tri = ctx.buildHarmony(0, 80, 50, 'triad');
+    check('三角色间隔 120', tri.length === 3 && tri[1][0] === 120 && tri[2][0] === 240);
+    check('类似色五组居中', ctx.buildHarmony(200, 50, 40, 'analog').length === 5);
+    const wrapH = ctx.buildHarmony(350, 50, 40, 'comp');
+    check('色相拥绕 0/360', wrapH[1][0] === 170 && ctx.buildHarmony(10, 50, 40, 'analog')[0][0] === 310);
+    check('调和色合法 hsl', ctx.buildHarmony(120, 60, 40, 'square').every(c => c[0] >= 0 && c[0] < 360 && c[1] === 60 && c[2] === 40));
     const hslRed = ctx.rgbToHsl(255, 0, 0);
     const backRed = ctx.hslToRgb(hslRed.h, hslRed.s, hslRed.l);
     check('hsl 精确回环', JSON.stringify(backRed) === JSON.stringify({ r: 255, g: 0, b: 0 }));
