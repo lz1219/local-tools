@@ -538,6 +538,20 @@ function finish() {
     check('黄道折线 120 点', ctx.eclipticPolyline().pts.length === 120);
     // 亮星距离表
     check('知名恒星距离表', ctx.STAR_DIST.Sirius === 8.6 && ctx.STAR_DIST.Vega === 25 && ctx.STAR_DIST.Polaris === 433);
+    // 地面网格 / 天际线 / 闪烁参数 / 天空纹理
+    const gg = ctx.buildGroundGrid();
+    check('地面网格 24 径向 + 6 距离环', gg.radials.length === 24 && gg.rings.length === 6);
+    const gv = gg.radials[0][0];
+    check('地面网格向量朝地下且为单位向量', gv[1] < 0 && Math.abs(Math.hypot(gv[0], gv[1], gv[2]) - 1) < 1e-9);
+    const se0 = ctx.skylineElev(10, 0), se1 = ctx.skylineElev(200, 1);
+    check('天际线轮廓在地平线下', se0 < -0.5 && se0 > -3 && se1 < -0.2 && se1 > -2.5);
+    check('天际线 360° 周期', Math.abs(ctx.skylineElev(10, 0) - ctx.skylineElev(370, 0)) < 1e-9);
+    const tw2a = ctx.buildTwinkle(64);
+    check('闪烁参数确定性且在取值域', tw2a.f1[7] >= 1.2 && tw2a.f1[7] <= 4 && tw2a.p1[7] >= 0 && tw2a.p1[7] < 6.3);
+    const ns = ctx.buildNoiseStars();
+    check('噪点暗星规模', ns.length === 5000 && ns.every(p => p.ra >= 0 && p.ra < 360 && Math.abs(p.dec) <= 90));
+    const nb = ctx.buildNebulae();
+    check('星云光斑规模与合法性', nb.length === 36 && nb.every(p => p.ra >= 0 && p.ra < 360 && Math.abs(p.dec) <= 90 && p.r > 0 && p.a > 0));
     // 星表完整性
     const SD = ctx.STAR_DATA;
     check('星表规模', SD.stars.length > 3000 && Object.keys(SD.lines).length === 88);
