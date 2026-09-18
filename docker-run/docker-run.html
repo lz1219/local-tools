@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>docker run 转 Compose</title>
+    <title>docker run ⇄ Compose 互转</title>
     <link rel="stylesheet" href="../assets/common.css">
     <style>
         .container { max-width: 1360px; }
@@ -13,6 +13,10 @@
         .io-workspace .editor-wrap { flex: 1; height: auto; min-height: 380px; height: calc(100vh - 330px); }
         .warn-list { margin-top: 10px; font-size: 12px; color: #b26a00; line-height: 1.8; display: none; }
         .warn-list.show { display: block; }
+        .seg { display: inline-flex; border: 1px solid #d0d7de; border-radius: 8px; overflow: hidden; background: #f6f8fa; }
+        .seg button { border: none; background: transparent; padding: 7px 14px; font-size: 13px; color: #57606a; cursor: pointer; border-right: 1px solid #d0d7de; }
+        .seg button:last-child { border-right: none; }
+        .seg button.active { background: #fff; color: #1f6feb; font-weight: 600; box-shadow: inset 0 0 0 1px #1f6feb; }
         @media (max-width: 900px) {
             .io-workspace { flex-direction: column; }
             .io-workspace .editor-wrap { height: 300px; }
@@ -21,10 +25,15 @@
 </head>
 <body>
     <div class="container">
-        <h1>docker run 转 Compose</h1>
-        <p class="subtitle">一行一条 docker run 命令 · 多条自动生成多服务 · 未知参数明确警告</p>
+        <h1>docker run ⇄ Compose 互转</h1>
+        <p class="subtitle">双向互转 · 多服务批量 · 未知参数与字段明确警告</p>
 
         <div class="btn-row" style="margin-top:14px;">
+            <div class="seg" id="dirSeg">
+                <button type="button" id="dirAuto" class="active">自动识别</button>
+                <button type="button" id="dirR2c">run → Compose</button>
+                <button type="button" id="dirC2r">Compose → run</button>
+            </div>
             <button class="btn-primary" onclick="convert()">转换</button>
             <button class="btn-success" onclick="copyOutput()">复制结果</button>
             <button class="btn-danger btn-sm" onclick="clearAll()">清空</button>
@@ -33,7 +42,7 @@
         <div class="io-workspace">
             <div class="panel">
                 <div class="panel-header">
-                    <h3>docker run 命令</h3>
+                    <h3 id="inputTitle">docker run 命令</h3>
                     <span class="badge badge-info" id="sizeBadge"></span>
                 </div>
                 <div class="editor-wrap">
@@ -46,7 +55,7 @@
 
             <div class="panel">
                 <div class="panel-header">
-                    <h3>docker-compose.yml</h3>
+                    <h3 id="outputTitle">docker-compose.yml</h3>
                     <span class="badge" id="statusBadge"></span>
                 </div>
                 <div class="editor-wrap">
@@ -282,16 +291,381 @@
                     lines.push(ind + 'env_file:');
                     s.envFiles.forEach(function (f) { lines.push(ind + '  - ' + yamlScalar(f)); });
                 }
-                s.ignored.forEach(function (ig) {
-                    lines.push(ind + '# 未转换的参数：' + ig + '（compose 无直接对应，请手动确认）');
-                });
+            s.ignored.forEach(function (ig) {
+                lines.push(ind + '# 未转换的参数：' + ig + '（compose 无直接对应，请手动确认）');
             });
-            return lines.join('\n') + '\n';
+        });
+        return lines.join('\n') + '\n';
+    }
+
+        // ================= 解析 compose YAML 子集（纯函数，可测） =================
+        // 仅覆盖 compose 常用写法：块映射 / 块列表 / 行内 [] {} / 引号 / 注释
+
+        function stripYamlComment(line) {
+            var sq = false, dq = false;
+            for (var i = 0; i < line.length; i++) {
+                var ch = line[i];
+                if (sq) { if (ch === "'") sq = false; }
+                else if (dq) { if (ch === '\\') i++; else if (ch === '"') dq = false; }
+                else if (ch === "'") sq = true;
+                else if (ch === '"') dq = true;
+                else if (ch === '#' && (i === 0 || /\s/.test(line[i - 1]))) return line.slice(0, i);
+            }
+            return line;
+        }
+
+        function unquoteYaml(s) {
+            if (s.length > 1 && s[0] === '"' && s[s.length - 1] === '"') {
+                try { return JSON.parse(s); } catch (e) { return s.slice(1, -1); }
+            }
+            if (s.length > 1 && s[0] === "'" && s[s.length - 1] === "'") return s.slice(1, -1).replace(/''/g, "'");
+            return s;
+        }
+
+        // 找 key: value 的分隔冒号：深度 0、引号外、冒号后为空格或行尾
+        function findYamlColon(text) {
+            var sq = false, dq = false, depth = 0;
+            for (var i = 0; i < text.length; i++) {
+                var ch = text[i];
+                if (sq) { if (ch === "'") sq = false; continue; }
+                if (dq) { if (ch === '\\') i++; else if (ch === '"') dq = false; continue; }
+                if (ch === "'") sq = true;
+                else if (ch === '"') dq = true;
+                else if (ch === '[' || ch === '{') depth++;
+                else if (ch === ']' || ch === '}') depth--;
+                else if (ch === ':' && depth === 0 && (i + 1 >= text.length || text[i + 1] === ' ' || text[i + 1] === '\t')) return i;
+            }
+            return -1;
+        }
+
+        function splitFlowItems(s) {
+            var parts = [], cur = '', depth = 0, sq = false, dq = false;
+            for (var i = 0; i < s.length; i++) {
+                var ch = s[i];
+                if (sq) { cur += ch; if (ch === "'") sq = false; continue; }
+                if (dq) {
+                    cur += ch;
+                    if (ch === '\\') { if (i + 1 < s.length) cur += s[++i]; }
+                    else if (ch === '"') dq = false;
+                    continue;
+                }
+                if (ch === "'") sq = true;
+                else if (ch === '"') dq = true;
+                else if (ch === '[' || ch === '{') depth++;
+                else if (ch === ']' || ch === '}') depth--;
+                if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; continue; }
+                cur += ch;
+            }
+            if (cur.trim() !== '') parts.push(cur);
+            return parts;
+        }
+
+        function parseYamlScalar(s) {
+            s = s.trim();
+            if (s.length > 1 && s[0] === '"' && s[s.length - 1] === '"') {
+                try { return JSON.parse(s); } catch (e) { return s.slice(1, -1); }
+            }
+            if (s.length > 1 && s[0] === "'" && s[s.length - 1] === "'") return s.slice(1, -1).replace(/''/g, "'");
+            if (s === 'true') return true;
+            if (s === 'false') return false;
+            if (s === 'null' || s === '~') return null;
+            if (s[0] === '[' && s[s.length - 1] === ']') {
+                var inner = s.slice(1, -1).trim();
+                return inner ? splitFlowItems(inner).map(parseYamlScalar) : [];
+            }
+            if (s[0] === '{' && s[s.length - 1] === '}') {
+                var obj = {}, inner2 = s.slice(1, -1).trim();
+                if (inner2) splitFlowItems(inner2).forEach(function (kv) {
+                    var ci = findYamlColon(kv);
+                    if (ci > 0) obj[unquoteYaml(kv.slice(0, ci).trim())] = parseYamlScalar(kv.slice(ci + 1));
+                });
+                return obj;
+            }
+            return s;
+        }
+
+        function yamlItems(text) {
+            var out = [];
+            text.split('\n').forEach(function (raw, idx) {
+                var line = stripYamlComment(raw).replace(/\s+$/, '');
+                if (!line.trim()) return;
+                out.push({ indent: line.match(/^ */)[0].length, text: line.trim(), no: idx + 1 });
+            });
+            return out;
+        }
+
+        function parseYamlNode(items, i, indent) {
+            if (i >= items.length || items[i].indent < indent) return [null, i];
+            var isDash = function (t) { return t === '-' || t.slice(0, 2) === '- '; };
+            if (isDash(items[i].text)) {
+                var arr = [];
+                while (i < items.length && items[i].indent === indent && isDash(items[i].text)) {
+                    var content = items[i].text === '-' ? '' : items[i].text.slice(2).trim();
+                    i++;
+                    if (content === '') {
+                        if (i < items.length && items[i].indent > indent) {
+                            var sub = parseYamlNode(items, i, items[i].indent);
+                            arr.push(sub[0]); i = sub[1];
+                        } else arr.push(null);
+                    } else if (findYamlColon(content) > 0) {
+                        // "- key: value" 起始的内联映射（如 ports/volumes 长语法）
+                        var m = {}, ci = findYamlColon(content);
+                        var k = unquoteYaml(content.slice(0, ci).trim());
+                        var rest = content.slice(ci + 1).trim();
+                        if (rest) m[k] = parseYamlScalar(rest);
+                        else if (i < items.length && items[i].indent > indent) {
+                            var sub2 = parseYamlNode(items, i, items[i].indent);
+                            m[k] = sub2[0]; i = sub2[1];
+                        } else m[k] = null;
+                        var mapIndent = (i < items.length && items[i].indent > indent) ? items[i].indent : -1;
+                        while (i < items.length && items[i].indent === mapIndent) {
+                            var ci2 = findYamlColon(items[i].text);
+                            if (ci2 < 0) throw new Error('第 ' + items[i].no + ' 行无法解析：' + items[i].text);
+                            var k2 = unquoteYaml(items[i].text.slice(0, ci2).trim());
+                            var rest2 = items[i].text.slice(ci2 + 1).trim();
+                            i++;
+                            if (rest2) m[k2] = parseYamlScalar(rest2);
+                            else if (i < items.length && items[i].indent > mapIndent) {
+                                var sub3 = parseYamlNode(items, i, items[i].indent);
+                                m[k2] = sub3[0]; i = sub3[1];
+                            } else m[k2] = null;
+                        }
+                        arr.push(m);
+                    } else {
+                        arr.push(parseYamlScalar(content));
+                    }
+                }
+                return [arr, i];
+            }
+            var obj = {};
+            while (i < items.length && items[i].indent === indent && !isDash(items[i].text)) {
+                var text = items[i].text;
+                var ci = findYamlColon(text);
+                if (ci <= 0) throw new Error('第 ' + items[i].no + ' 行无法解析：' + text);
+                var key = unquoteYaml(text.slice(0, ci).trim());
+                var rest = text.slice(ci + 1).trim();
+                i++;
+                if (rest !== '') obj[key] = parseYamlScalar(rest);
+                else if (i < items.length && items[i].indent > indent) {
+                    var sub4 = parseYamlNode(items, i, items[i].indent);
+                    obj[key] = sub4[0]; i = sub4[1];
+                } else obj[key] = null;
+            }
+            return [obj, i];
+        }
+
+        function parseComposeYaml(text) {
+            var items = yamlItems(text);
+            if (!items.length) throw new Error('内容为空');
+            if (items[0].indent !== 0) throw new Error('第 ' + items[0].no + ' 行缩进异常，顶层字段应从行首开始');
+            var doc = parseYamlNode(items, 0, 0)[0];
+            if (!doc || typeof doc !== 'object' || doc instanceof Array) throw new Error('不是有效的 YAML 映射');
+            if (!doc.services || typeof doc.services !== 'object' || doc.services instanceof Array)
+                throw new Error('缺少 services 服务定义');
+            return doc;
+        }
+
+        // ================= 生成 docker run（纯函数，可测） =================
+
+        // compose 直接认识的字段（静默处理或专项警告）
+        var COMPOSE_KNOWN = {
+            image: 1, container_name: 1, hostname: 1, restart: 1, network_mode: 1, user: 1,
+            working_dir: 1, entrypoint: 1, command: 1, stdin_open: 1, tty: 1, privileged: 1,
+            init: 1, read_only: 1, oom_kill_disable: 1, deploy: 1, mem_limit: 1, cpus: 1,
+            shm_size: 1, gpus: 1, ports: 1, volumes: 1, environment: 1, labels: 1,
+            extra_hosts: 1, dns: 1, devices: 1, cap_add: 1, cap_drop: 1, expose: 1, env_file: 1
+        };
+        // compose 特有、run 无对应物的字段（专项警告）
+        var COMPOSE_ONLY = {
+            build: 'build 定义需在 compose 中构建镜像，docker run 请改用已构建的 image',
+            depends_on: 'depends_on 无法转换，请在启动脚本中控制启动顺序',
+            networks: 'networks 属于 compose 网络定义，docker run 请改用 --network 指定已存在的网络',
+            healthcheck: 'healthcheck 无 docker run 对应参数，已忽略',
+            logging: 'logging 无 docker run 对应参数，已忽略',
+            profiles: 'profiles 无 docker run 对应参数，已忽略',
+            stop_grace_period: 'stop_grace_period 无 docker run 对应参数，已忽略',
+            pull_policy: 'pull_policy 无 docker run 对应参数，已忽略'
+        };
+
+        function shStr(s) {
+            s = String(s);
+            if (s !== '' && /^[A-Za-z0-9_@%+=:,./\-]+$/.test(s)) return s;
+            return "'" + s.replace(/'/g, "'\\''") + "'";
+        }
+
+        function asList(v) {
+            if (v === null || v === undefined) return [];
+            return v instanceof Array ? v : [v];
+        }
+
+        function portLongToShort(p, w) {
+            var out = '';
+            if (p.host_ip) out += String(p.host_ip) + ':';
+            if (p.published != null) out += String(p.published);
+            if (p.target != null) out += ':' + String(p.target);
+            if (p.protocol && p.protocol !== 'tcp') {
+                if (p.protocol === 'udp') out += '/udp';
+                else w('端口协议 ' + p.protocol + ' 无法转换，仅保留 tcp/udp');
+            }
+            if (p.mode && p.mode !== 'ingress') w('端口 mode: ' + p.mode + ' 已忽略');
+            return out || String(p.target || '');
+        }
+
+        function volLongToShort(v, w) {
+            if (v.type === 'bind') return String(v.source) + ':' + String(v.target) + (v.read_only ? ':ro' : '');
+            if (v.type === 'volume' || !v.type) return String(v.source) + ':' + String(v.target) + (v.read_only ? ':ro' : '');
+            w('卷类型 ' + v.type + ' 无法转换');
+            return String(v.target || '');
+        }
+
+        function envArgs(parts, env, w) {
+            if (env instanceof Array) {
+                env.forEach(function (e) { parts.push('--env', shStr(e)); });
+            } else if (env && typeof env === 'object') {
+                Object.keys(env).forEach(function (k) {
+                    var v = env[k];
+                    parts.push('--env', shStr(v === null || v === undefined ? k : k + '=' + v));
+                });
+            } else if (env != null) w('environment 格式无法识别，已忽略');
+        }
+
+        function toRunCommand(name, svc, warnings) {
+            var w = function (msg) { warnings.push('服务 ' + name + '：' + msg); };
+            if (!svc || typeof svc !== 'object' || svc instanceof Array) {
+                warnings.push('服务 ' + name + '：定义无法识别，已跳过');
+                return null;
+            }
+            if (!svc.image) {
+                warnings.push('服务 ' + name + '：缺少 image，已跳过');
+                return null;
+            }
+            var parts = ['docker', 'run', '--detach'];
+            if (svc.container_name != null) parts.push('--name', shStr(svc.container_name));
+            if (svc.hostname != null) parts.push('--hostname', shStr(svc.hostname));
+            if (svc.restart != null) parts.push('--restart', shStr(svc.restart));
+            if (svc.network_mode != null) parts.push('--network', shStr(svc.network_mode));
+            if (svc.user != null) parts.push('--user', shStr(svc.user));
+            if (svc.working_dir != null) parts.push('--workdir', shStr(svc.working_dir));
+            if (svc.entrypoint != null) {
+                var ep = svc.entrypoint instanceof Array ? svc.entrypoint.join(' ') : String(svc.entrypoint);
+                parts.push('--entrypoint', shStr(ep));
+            }
+            if (svc.stdin_open === true) parts.push('--interactive');
+            if (svc.tty === true) parts.push('--tty');
+            if (svc.privileged === true) parts.push('--privileged');
+            if (svc.init === true) parts.push('--init');
+            if (svc.read_only === true) parts.push('--read-only');
+            if (svc.oom_kill_disable === true) parts.push('--oom-kill-disable');
+            var limits = svc.deploy && typeof svc.deploy === 'object' &&
+                svc.deploy.resources && svc.deploy.resources.limits;
+            if (limits && limits.memory != null) parts.push('--memory', shStr(limits.memory));
+            else if (svc.mem_limit != null) parts.push('--memory', shStr(svc.mem_limit));
+            if (limits && limits.cpus != null) parts.push('--cpus', shStr(limits.cpus));
+            else if (svc.cpus != null) parts.push('--cpus', shStr(svc.cpus));
+            if (svc.shm_size != null) parts.push('--shm-size', shStr(svc.shm_size));
+            if (svc.gpus != null) parts.push('--gpus', shStr(svc.gpus));
+            asList(svc.ports).forEach(function (p) {
+                parts.push('--publish', shStr(typeof p === 'object' ? portLongToShort(p, w) : p));
+            });
+            asList(svc.volumes).forEach(function (v) {
+                parts.push('--volume', shStr(typeof v === 'object' ? volLongToShort(v, w) : v));
+            });
+            envArgs(parts, svc.environment, w);
+            if (svc.labels instanceof Array) svc.labels.forEach(function (l) { parts.push('--label', shStr(l)); });
+            else if (svc.labels && typeof svc.labels === 'object') {
+                Object.keys(svc.labels).forEach(function (k) { parts.push('--label', shStr(k + '=' + svc.labels[k])); });
+            }
+            asList(svc.extra_hosts).forEach(function (h) { parts.push('--add-host', shStr(h)); });
+            asList(svc.dns).forEach(function (d) { parts.push('--dns', shStr(d)); });
+            asList(svc.devices).forEach(function (d) { parts.push('--device', shStr(d)); });
+            asList(svc.cap_add).forEach(function (c) { parts.push('--cap-add', shStr(c)); });
+            asList(svc.cap_drop).forEach(function (c) { parts.push('--cap-drop', shStr(c)); });
+            asList(svc.expose).forEach(function (e) { parts.push('--expose', shStr(e)); });
+            asList(svc.env_file).forEach(function (f) { parts.push('--env-file', shStr(f)); });
+            Object.keys(svc).forEach(function (k) {
+                if (COMPOSE_KNOWN[k] || k in COMPOSE_ONLY) return;
+                w('字段 ' + k + ' 未识别，已忽略');
+            });
+            Object.keys(COMPOSE_ONLY).forEach(function (k) {
+                if (k in svc) w(COMPOSE_ONLY[k]);
+            });
+            parts.push(shStr(svc.image));
+            if (svc.command instanceof Array) svc.command.forEach(function (c) { parts.push(shStr(c)); });
+            else if (typeof svc.command === 'string' && svc.command.trim()) parts.push(svc.command);
+            return parts.join(' ');
+        }
+
+        function composeToRun(text) {
+            var doc = parseComposeYaml(text);
+            var warnings = [], commands = [];
+            Object.keys(doc.services).forEach(function (name) {
+                var cmd = toRunCommand(name, doc.services[name], warnings);
+                if (cmd) commands.push(cmd);
+            });
+            Object.keys(doc).forEach(function (k) {
+                if (k !== 'services' && k !== 'version' && k !== 'name')
+                    warnings.push('顶层字段「' + k + '」未转换（networks / volumes 等请在 compose 中维护）');
+            });
+            return { commands: commands, warnings: warnings };
         }
 
         // ================= UI =================
 
+        var DIR_LABELS = {
+            r2c: {
+                inTitle: 'docker run 命令', outTitle: 'docker-compose.yml',
+                inPh: 'docker run -d --name web -p 8080:80 -e KEY=val nginx:latest\n支持一次粘贴多条命令，每条一行'
+            },
+            c2r: {
+                inTitle: 'docker-compose.yml', outTitle: 'docker run 命令',
+                inPh: 'services:\n  web:\n    image: nginx:latest\n    ports:\n      - "8080:80"\n    environment:\n      - KEY=val'
+            }
+        };
+        var curDir = 'auto';
+
+        function applyDir(dir) {
+            var L = DIR_LABELS[dir];
+            $('inputTitle').textContent = L.inTitle;
+            $('outputTitle').textContent = L.outTitle;
+            $('input').placeholder = L.inPh;
+            $('output').placeholder = '转换结果将显示在这里...';
+            $('output').value = '';
+            $('errorDetail').textContent = '';
+            $('errorDetail').style.display = 'none';
+            $('warnList').classList.remove('show');
+            $('statusBadge').textContent = '';
+            $('statusBadge').className = 'badge';
+            updateLineNumbers($('output'), $('outputLines'));
+        }
+
+        function setDir(d) {
+            curDir = d;
+            var map = { auto: 'dirAuto', r2c: 'dirR2c', c2r: 'dirC2r' };
+            Object.keys(map).forEach(function (k) { $(map[k]).classList.toggle('active', k === d); });
+            applyDir(d === 'auto' ? 'r2c' : d);
+        }
+
+        // 自动识别输入方向：任一非注释行以 docker 开头 → run→compose；整体呈 YAML 形态 → compose→run
+        function detectDir(text) {
+            var lines = text.split('\n');
+            var meaningful = lines.map(function (l) { return l.trim(); })
+                .filter(function (l) { return l && l[0] !== '#'; });
+            if (!meaningful.length) return 'r2c';
+            if (meaningful.some(function (l) { return /^docker\s+/.test(l); })) return 'r2c';
+            if (/^(services|version|name)\s*:/.test(meaningful[0]) ||
+                (meaningful[0].slice(-1) === ':' && /^[A-Za-z0-9_.-]+$/.test(meaningful[0].slice(0, -1)))) return 'c2r';
+            return 'r2c';
+        }
+
         function convert() {
+            var text = $('input').value;
+            if (!text.trim()) { showToast('请先粘贴内容再转换'); return; }
+            var dir = curDir === 'auto' ? detectDir(text) : curDir;
+            if (dir === 'c2r') convertC2R(text);
+            else convertR2C(text);
+        }
+
+        function convertR2C() {
             var lines = $('input').value.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
             if (!lines.length) { showToast('请粘贴 docker run 命令'); return; }
             var services = [], errors = [];
@@ -322,6 +696,28 @@
             showToast('已转换 ' + services.length + ' 个服务');
         }
 
+        function convertC2R(text) {
+            var res, err = null;
+            try {
+                res = composeToRun(text);
+            } catch (e) {
+                err = e.message;
+            }
+            $('errorDetail').textContent = err || '';
+            $('errorDetail').style.display = err ? 'block' : 'none';
+            if (err) return;
+
+            $('output').value = res.commands.length ? res.commands.join('\n') + '\n' : '';
+            updateLineNumbers($('output'), $('outputLines'));
+
+            $('warnList').textContent = res.warnings.length ? '转换警告：' + res.warnings.join('；') : '';
+            $('warnList').classList.toggle('show', res.warnings.length > 0);
+
+            $('statusBadge').className = 'badge badge-ok';
+            $('statusBadge').textContent = res.commands.length ? '已生成 ' + res.commands.length + ' 条命令' : '没有可转换的服务';
+            showToast(res.commands.length ? '已生成 ' + res.commands.length + ' 条命令' : '没有可转换的服务');
+        }
+
         function copyOutput() {
             var t = $('output').value;
             if (!t) { showToast('没有可复制的内容'); return; }
@@ -342,6 +738,9 @@
 
         bindEditor('input', 'inputLines', 'sizeBadge');
         bindEditor('output', 'outputLines');
+        $('dirAuto').addEventListener('click', function () { setDir('auto'); });
+        $('dirR2c').addEventListener('click', function () { setDir('r2c'); });
+        $('dirC2r').addEventListener('click', function () { setDir('c2r'); });
     </script>
 </body>
 </html>

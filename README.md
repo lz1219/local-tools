@@ -14,7 +14,7 @@
 | 哈希计算 | [hash/hash.html](hash/hash.html) | MD5 / SHA-1 / SHA-256 / SHA-512，文本与文件 |
 | 时间戳转换 | [time/time.html](time/time.html) | 时间戳与日期互转，秒/毫秒自动识别 |
 | Cron 表达式解析器 | [cron/cron.html](cron/cron.html) | 5/6 位字段与宏解析，中文说明，未来 8 次运行时间推算 |
-| docker run 转 Compose | [docker-run/docker-run.html](docker-run/docker-run.html) | docker run 命令转 docker-compose.yml，多行多服务，未知参数警告 |
+| docker run ⇄ Compose 互转 | [docker-run/docker-run.html](docker-run/docker-run.html) | docker run 与 docker-compose.yml 双向互转，多服务批量，未知参数与字段警告 |
 
 **文本处理**
 

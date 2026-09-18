@@ -467,6 +467,77 @@ function finish() {
     els['input'].value = 'docker run -d --name web -p 8080:80 nginx:latest';
     ctx.convert();
     check('docker UI 转换', els['output'].value.includes('container_name: web') && els['statusBadge'].textContent.includes('1 个服务'));
+
+    // ---- compose → run ----
+    check('yaml 标量与行内集合', (function () {
+        var sc = ctx.parseYamlScalar;
+        return sc('"a b"') === 'a b' && sc("'c d'") === 'c d' && sc('true') === true &&
+            JSON.stringify(sc('[1, "x y"]')) === JSON.stringify(['1', 'x y']) &&
+            JSON.stringify(sc('{k: "v v", n: 2}')).includes('"k":"v v"');
+    })());
+    var ymlIn = [
+        'version: "3.8"',
+        '# 顶部注释',
+        'services:',
+        '  web:',
+        '    image: nginx:latest',
+        '    container_name: web',
+        '    restart: unless-stopped',
+        '    ports:',
+        '      - "8080:80"',
+        '    environment:',
+        '      KEY: val',
+        '      NUM: 2',
+        '    volumes:',
+        '      - /data:/data',
+        '    network_mode: host',
+        '    mem_limit: 512m',
+        '    cpus: "1.5"',
+        '    command:',
+        '      - nginx',
+        '      - -g',
+        '      - daemon off;',
+        '  db:', 
+        '    image: postgres:16',
+        '    environment: ["POSTGRES_PASSWORD=p w"]',
+        'x-extra: 1'
+    ].join('\n');
+    var c2r = ctx.composeToRun(ymlIn);
+    var webCmd = c2r.commands[0] || '';
+    check('compose 解析与命令生成', c2r.commands.length === 2 &&
+        webCmd.startsWith('docker run --detach --name web') &&
+        webCmd.includes('--restart unless-stopped') && webCmd.includes('--publish 8080:80') &&
+        webCmd.includes('--env KEY=val') && webCmd.includes('--env NUM=2') &&
+        webCmd.includes('--volume /data:/data') && webCmd.includes('--network host') &&
+        webCmd.includes('--memory 512m') && webCmd.includes('--cpus 1.5') &&
+        webCmd.includes('nginx:latest nginx -g \'daemon off;\''));
+    check('compose env 引号值', (c2r.commands[1] || '').includes("--env 'POSTGRES_PASSWORD=p w'"));
+    check('compose 顶层字段警告', c2r.warnings.some(function (w) { return w.indexOf('x-extra') !== -1; }));
+    var c2rBad = ctx.composeToRun('services:\n  web:\n    ports:\n      - "80"');
+    check('compose 缺 image 警告跳过', c2rBad.commands.length === 0 &&
+        c2rBad.warnings.some(function (w) { return w.indexOf('缺少 image') !== -1; }));
+    var longSyntax = ctx.composeToRun('services:\n  web:\n    image: nginx\n    ports:\n      - target: 80\n        published: 8080\n        protocol: udp\n    volumes:\n      - type: bind\n        source: /data\n        target: /usr/share/nginx\n        read_only: true\n    deploy:\n      resources:\n        limits:\n          memory: 256m\n').commands[0] || '';
+    check('compose 长语法与 deploy 限制', longSyntax.includes('--publish 8080:80/udp') &&
+        longSyntax.includes('--volume /data:/usr/share/nginx:ro') && longSyntax.includes('--memory 256m'));
+    // 回环：run → compose → run 后关键参数不丢
+    var rt = ctx.composeToRun(ctx.toCompose([ctx.parseDockerRun("docker run -dit --name web --restart unless-stopped -p 8080:80 -e KEY=val -v /data:/data --network host -m 512m --cpus 1.5 nginx:latest nginx -g 'daemon off;'")]));
+    check('run-compose-run 回环', rt.commands.length === 1 && (function () {
+        var c = rt.commands[0];
+        return c.includes('--name web') && c.includes('--restart unless-stopped') &&
+            c.includes('--publish 8080:80') && c.includes('--env KEY=val') &&
+            c.includes('--volume /data:/data') && c.includes('--network host') &&
+            c.includes('--memory 512m') && c.includes('--cpus 1.5') &&
+            c.includes('--interactive') && c.includes('--tty') &&
+            c.includes('nginx:latest nginx -g \'daemon off;\'');
+    })());
+    check('detectDir 识别', ctx.detectDir('docker run -d nginx') === 'r2c' &&
+        ctx.detectDir('services:\n  web:\n    image: nginx') === 'c2r' &&
+        ctx.detectDir('# 注释\nversion: "3"') === 'c2r');
+    els['input'].value = 'services:\n  web:\n    image: nginx:latest\n    container_name: web\n    ports:\n      - "8080:80"';
+    ctx.setDir('c2r');
+    ctx.convert();
+    check('docker UI 反向转换', els['output'].value.startsWith('docker run --detach --name web') &&
+        els['output'].value.includes('--publish 8080:80') && els['statusBadge'].textContent.includes('1 条命令'));
 }
 
 // ---- jwt.html ----
