@@ -48,7 +48,7 @@
 | 工具 | 路径 | 说明 |
 |------|------|------|
 | 电子木鱼 | [fish/fish.html](fish/fish.html) | 连击、自动模式、功德持久化的解压小玩具 |
-| 星空图 | [star/star.html](star/star.html) | 视差星空 + 银河 + 星云，点击许愿召唤流星 |
+| 星空图 | [star/star.html](star/star.html) | 3232 颗恒星 + 88 星座连线，选城市实时渲染当晚星空，行星/月相推算 |
 | 幸运转盘 | [wheel/wheel.html](wheel/wheel.html) | 自定义选项抽签转盘，音效与中奖移除 |
 | 假装 Windows 更新 | [winupdate/winupdate.html](winupdate/winupdate.html) | 全屏拟真更新画面，Win10/Win11 双风格 |
 | 假装写代码 | [fakecode/fakecode.html](fakecode/fakecode.html) | 敲键盘即"写代码"，四种主题 + 自动播放 |

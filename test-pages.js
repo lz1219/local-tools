@@ -14,7 +14,7 @@ const memStorage = {
     removeItem: (k) => { delete memStore[k]; }
 };
 
-function loadPage(rel, extra) {
+function loadPage(rel, extra, preJs) {
     const html = fs.readFileSync(path.join(ROOT, rel), 'utf8');
     const m = html.match(/<script>([\s\S]*?)<\/script>/);
     if (!m) throw new Error(rel + ': no inline script found');
@@ -53,7 +53,7 @@ function loadPage(rel, extra) {
     };
     Object.assign(sandbox, extra || {});
     const ctx = vm.createContext(sandbox);
-    vm.runInContext(commonJs + '\n' + m[1], ctx);
+    vm.runInContext((preJs ? preJs + '\n' : '') + commonJs + '\n' + m[1], ctx);
     return { ctx, els, listeners };
 }
 
@@ -463,25 +463,91 @@ function finish() {
 
 // ---- star.html ----
 {
-    const { ctx } = loadPage('star/star.html');
-    const a = ctx.makeRng(42), b = ctx.makeRng(42);
-    const seqA = [a(), a(), a()], seqB = [b(), b(), b()];
-    check('rng 同种子同序列', JSON.stringify(seqA) === JSON.stringify(seqB));
-    check('rng 值域', seqA.every(v => v >= 0 && v < 1));
-    const rng = ctx.makeRng(7);
-    const stars = ctx.genStars(rng, 300, 800, 600);
-    check('星星数量与边界', stars.length === 300 &&
-        stars.every(s => s.x >= 0 && s.x < 800 && s.y >= 0 && s.y < 600));
-    check('星星分层与参数', stars.every(s => s.layer >= 0 && s.layer <= 2 && s.size > 0 && s.phase >= 0));
-    const m = ctx.spawnMeteor(ctx.makeRng(1), 800, 600);
-    check('流星出生在上方', m.y < 600 * 0.35 && m.x >= 0 && m.x <= 800);
-    const before = { x: m.x, y: m.y };
-    const dt = 0.1;
-    const alive = ctx.stepMeteor(m, dt);
-    check('流星位移', Math.abs(m.x - before.x - m.vx * dt) < 1e-9 && m.life === dt);
-    let guard = 0;
-    while (ctx.stepMeteor(m, dt) && guard++ < 1000) {}
-    check('流星寿命耗尽', guard < 1000 && !ctx.stepMeteor(m, dt));
+    const stardata = fs.readFileSync(path.join(ROOT, 'star/stardata.js'), 'utf8');
+    const { ctx } = loadPage('star/star.html', null, stardata);
+    // 恒星时
+    check('GMST at J2000', Math.abs(ctx.gmstDeg(2451545.0) - 280.4606) < 0.01);
+    const j2000 = Date.UTC(2000, 0, 1, 12, 0, 0);
+    check('LST 经度叠加', Math.abs((ctx.lstDeg(j2000, 116.40) - (280.4606 + 116.40) % 360 + 360) % 360) < 0.01);
+    // 赤道 → 地平：北极星过中天（高度≈纬度、正北）
+    const pol = ctx.raDecToAltAz(37.955, 89.264, 39.904, 37.955);
+    check('北极星高度≈纬度', Math.abs(pol.alt - 40.64) < 0.6);
+    check('北极星在中天偏北', Math.min(pol.az, 360 - pol.az) < 1.5);
+    // 时角 -90°（升出东方地平）
+    const rise = ctx.raDecToAltAz(0, 0, 40, 270);
+    check('东升西落坐标系', Math.abs(rise.alt) < 1e-6 && Math.abs(rise.az - 90) < 1e-6);
+    const zen = ctx.raDecToAltAz(100, 39.904, 39.904, 100);
+    check('赤纬=纬度过天顶', Math.abs(zen.alt - 90) < 1e-6);
+    // 开普勒：M=0 → E=0
+    check('kepler M=0', Math.abs(ctx.kepler(0, 0.1)) < 1e-9);
+    // J2000 太阳位置（RA≈281°，dec≈-23°）
+    const all = ctx.planetPositions(j2000);
+    const sun = all.find(p => p.key === 'sun');
+    check('J2000 太阳位置', Math.abs(sun.ra - 281.2) < 3 && sun.dec < -20 && sun.dec > -26);
+    check('七大行星+太阳齐全', all.length === 8 && all.every(p => p.ra >= 0 && p.ra < 360 && Math.abs(p.dec) <= 90));
+    // 月亮
+    const m1 = ctx.moonPosition(j2000), m2 = ctx.moonPosition(j2000 + 86400000);
+    const dRa = (((m2.ra - m1.ra) + 540) % 360) - 180;
+    check('月亮日行约 13°', Math.abs(dRa - 13.2) < 2.5);
+    check('月相参数合法', m1.age >= 0 && m1.age < 29.53 && m1.illum >= 0 && m1.illum <= 1 && Math.abs(m1.dec) <= 30);
+    check('月相名称', ctx.phaseName(0.5) === '新月' && ctx.phaseName(7) === '上弦月' && ctx.phaseName(14.8) === '满月');
+    // 方位
+    check('八方位', ctx.directionText(0) === '北' && ctx.directionText(90) === '东' && ctx.directionText(135) === '东南' && ctx.directionText(270) === '西');
+    check('方位偏角', ctx.azText(95) === '东偏南 5°' && ctx.azText(355) === '北偏西 5°' && ctx.azText(44) === '东北偏北 1°' && ctx.azText(90) === '东');
+    // 3D 相机
+    const vN = ctx.altAzToVec(0, 0);
+    check('北地平单位向量', Math.abs(vN[0]) < 1e-12 && Math.abs(vN[1]) < 1e-12 && Math.abs(vN[2] - 1) < 1e-12);
+    const vZ = ctx.altAzToVec(90, 30);
+    check('天顶单位向量', Math.abs(vZ[0]) < 1e-12 && Math.abs(vZ[1] - 1) < 1e-12 && Math.abs(vZ[2]) < 1e-12);
+    const vE = ctx.altAzToVec(0, 90);
+    check('东地平单位向量', Math.abs(vE[0] - 1) < 1e-12 && Math.abs(vE[1]) < 1e-12 && Math.abs(vE[2]) < 1e-12);
+    const camN = ctx.camBasis(0, 0);
+    const prC = ctx.projectVec([0, 0, 1], camN, 1000, 800, 75);
+    check('视线中心投影在画布中心', Math.abs(prC.x - 500) < 1e-9 && Math.abs(prC.y - 400) < 1e-9);
+    const prE2 = ctx.projectVec(ctx.altAzToVec(30, 60), camN, 1000, 800, 75);
+    check('面北时东侧在右', prE2.x > 900 && prE2.y < 400);
+    const prU = ctx.projectVec(ctx.altAzToVec(60, 0), camN, 1000, 800, 75);
+    check('面北时高处在上', Math.abs(prU.x - 500) < 1 && prU.y < 100);
+    check('身后天体不投影', ctx.projectVec([0, 0, -1], camN, 1000, 800, 75) === null);
+    const camS = ctx.camBasis(123, 45);
+    const back = ctx.screenToAltAz(500, 400, camS, 1000, 800, 75);
+    check('反投影回到视线方向', Math.abs(back.alt - 45) < 1e-9 && Math.abs(back.az - 123) < 1e-9);
+    const vw = { yaw: 180, pitch: 10, fov: 75 };
+    ctx.applyDrag(vw, 100, 50, 1000);
+    check('拖动映射（右拖视角左转）', vw.yaw < 180 && vw.pitch > 10);
+    const vw2 = { yaw: 0, pitch: 88, fov: 75 };
+    ctx.applyDrag(vw2, 0, 1e7, 1000);
+    check('俯仰夹角上界 89°', vw2.pitch === 89);
+    const vw3 = { yaw: 0, pitch: -88, fov: 75 };
+    ctx.applyDrag(vw3, 0, -1e7, 1000);
+    check('俯仰夹角下界 -89°', vw3.pitch === -89);
+    ctx.zoomFov(vw, -1000);
+    check('视场夹角下界 15°', vw.fov === 15);
+    ctx.zoomFov(vw, 10000);
+    check('视场夹角上界 110°', vw.fov === 110);
+    // 银道坐标与银河点云
+    const gnp = ctx.galToEq(0, 90);
+    check('银北极 RA192.86/Dec27.13', Math.abs(gnp.ra - 192.8595) < 0.05 && Math.abs(gnp.dec - 27.1284) < 0.05);
+    const gc = ctx.galToEq(0, 0);
+    check('银心方向 RA266.4/Dec-28.94', Math.abs(gc.ra - 266.405) < 0.05 && Math.abs(gc.dec + 28.9362) < 0.05);
+    const mw = ctx.buildMilkyWay();
+    check('银河点云规模', mw.length > 3500 && mw.every(p => p.ra >= 0 && p.ra < 360 && Math.abs(p.dec) <= 90 && p.a > 0 && p.a <= 0.6));
+    check('银河暗带存在', mw.some(p => p.a < 0.05));
+    const grid = ctx.eqGrid();
+    check('赤道网格 17 条折线', grid.length === 17 && grid.every(pl => pl.pts.length > 30));
+    check('黄道折线 120 点', ctx.eclipticPolyline().pts.length === 120);
+    // 亮星距离表
+    check('知名恒星距离表', ctx.STAR_DIST.Sirius === 8.6 && ctx.STAR_DIST.Vega === 25 && ctx.STAR_DIST.Polaris === 433);
+    // 星表完整性
+    const SD = ctx.STAR_DATA;
+    check('星表规模', SD.stars.length > 3000 && Object.keys(SD.lines).length === 88);
+    check('星表坐标合法', SD.stars.every(s => s[0] >= 0 && s[0] < 360 && Math.abs(s[1]) <= 90 && s[2] > -2 && s[2] < 7));
+    check('星座折线合法', Object.keys(SD.lines).every(id => {
+        const c = SD.lines[id];
+        return c.zh && c.anchor.length === 2 && c.polys.every(p => p.length >= 4 && p.length % 2 === 0);
+    }));
+    check('猎户座中文名', SD.lines.Ori && SD.lines.Ori.zh === '猎户座');
+    check('亮星中文别名', SD.starZh['Sirius'] === '天狼星' && SD.starZh['Vega'] === '织女星');
 }
 
 // ---- winupdate.html ----
