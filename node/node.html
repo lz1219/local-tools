@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="../assets/common.css">
     <style>
         .b-vmess { background: #e3f2fd; color: #1565c0; }
+        .b-vless { background: #ede7f6; color: #5e35b1; }
         .b-trojan { background: #ffeef0; color: #c62828; }
         .b-ss { background: #e8f5e9; color: #2e7d32; }
         .b-ssr { background: #fff3e0; color: #ef6c00; }
@@ -35,7 +36,7 @@
 <body>
     <div class="container">
         <h1>节点链接解析工具</h1>
-        <p class="subtitle">vmess / trojan / ss / ssr 分享链接解析编辑 · 重新生成</p>
+        <p class="subtitle">vmess / vless / trojan / ss / ssr 分享链接解析编辑 · 重新生成</p>
 
         <div class="panel">
             <div class="panel-header">
@@ -123,6 +124,23 @@
             return { _type: 'trojan', password: password, host: hostport.slice(0, ci), port: hostport.slice(ci + 1), query: query, name: name };
         }
 
+        // vless://uuid@host:port?encryption=none&security=reality&...#名称
+        function parseVless(rest) {
+            var name = '', query = '';
+            var hashIdx = rest.indexOf('#');
+            if (hashIdx >= 0) { name = safeDecode(rest.slice(hashIdx + 1)); rest = rest.slice(0, hashIdx); }
+            var qIdx = rest.indexOf('?');
+            if (qIdx >= 0) { query = rest.slice(qIdx + 1); rest = rest.slice(0, qIdx); }
+            var at = rest.lastIndexOf('@');
+            if (at < 0) throw new Error('vless 链接缺少 @');
+            var id = safeDecode(rest.slice(0, at));
+            if (!id) throw new Error('vless 链接缺少 ID');
+            var hostport = rest.slice(at + 1);
+            var ci = hostport.lastIndexOf(':');
+            if (ci < 0) throw new Error('vless 链接缺少端口');
+            return { _type: 'vless', id: id, host: hostport.slice(0, ci), port: hostport.slice(ci + 1), query: query, name: name };
+        }
+
         function parseSS(rest) {
             var name = '', query = '';
             var hashIdx = rest.indexOf('#');
@@ -176,6 +194,7 @@
             line = line.trim();
             if (!line) return null;
             if (line.indexOf('vmess://') === 0) return parseVmess(line.slice(8));
+            if (line.indexOf('vless://') === 0) return parseVless(line.slice(8));
             if (line.indexOf('trojan://') === 0) return parseTrojan(line.slice(9));
             if (line.indexOf('ss://') === 0) return parseSS(line.slice(5));
             if (line.indexOf('ssr://') === 0) return parseSSR(line.slice(6));
@@ -197,6 +216,11 @@
                 var tag = node.name ? '#' + encodeURIComponent(node.name) : '';
                 return 'trojan://' + encodeURIComponent(node.password) + '@' + node.host + ':' + node.port + q + tag;
             }
+            if (node._type === 'vless') {
+                var q3 = node.query ? '?' + node.query : '';
+                var tag3 = node.name ? '#' + encodeURIComponent(node.name) : '';
+                return 'vless://' + node.id + '@' + node.host + ':' + node.port + q3 + tag3;
+            }
             if (node._type === 'ss') {
                 var q2 = node.query ? '/?' + node.query : '';
                 var tag2 = node.name ? '#' + encodeURIComponent(node.name) : '';
@@ -217,6 +241,7 @@
         // ---- UI ----
         var FIELD_MAP = {
             vmess: [['ps', '名称'], ['add', '地址'], ['port', '端口'], ['id', 'ID'], ['aid', 'AlterId'], ['scy', '加密'], ['net', '传输'], ['type', '伪装'], ['host', 'Host'], ['path', '路径'], ['tls', 'TLS'], ['sni', 'SNI']],
+            vless: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['id', 'ID'], ['query', '参数 (query)']],
             trojan: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['password', '密码'], ['query', '参数 (query)']],
             ss: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['method', '加密'], ['password', '密码'], ['query', '参数 (query)']],
             ssr: [['name', '名称'], ['host', '地址'], ['port', '端口'], ['protocol', '协议'], ['method', '加密'], ['obfs', '混淆'], ['password', '密码'], ['obfsparam', '混淆参数'], ['protoparam', '协议参数'], ['group', '分组']]

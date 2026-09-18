@@ -159,14 +159,19 @@ function finish() {
         'vmess://' + b64u(JSON.stringify(vmessObj)),
         'trojan://pass%40123@b.example.com:443?security=tls&sni=b.example.com#' + encodeURIComponent('Trojan节点'),
         'ss://' + Buffer.from('aes-256-gcm:secret', 'utf8').toString('base64url') + '@c.example.com:8388#' + encodeURIComponent('SS节点'),
-        'ssr://' + b64u(['d.example.com', '443', 'auth_aes128_md5', 'aes-128-cfb', 'tls1.2_ticket_auth', Buffer.from('ssrpass', 'utf8').toString('base64')].join(':') + '/?remarks=' + Buffer.from('SSR节点', 'utf8').toString('base64url'))
+        'ssr://' + b64u(['d.example.com', '443', 'auth_aes128_md5', 'aes-128-cfb', 'tls1.2_ticket_auth', Buffer.from('ssrpass', 'utf8').toString('base64')].join(':') + '/?remarks=' + Buffer.from('SSR节点', 'utf8').toString('base64url')),
+        'vless://2a1c1b35-6b5a-4f7c-9e0d-1a2b3c4d5e6f@e.example.com:443?encryption=none&security=reality&sni=e.example.com&fp=chrome&pbk=PubKey&sid=01&flow=xtls-rprx-vision&type=tcp#' + encodeURIComponent('VLESS节点')
     ];
     els['input'].value = links.join('\n');
     ctx.parseAll();
-    check('vmess 解析', ctx.nodes.length === 4 && ctx.nodes[0]._type === 'vmess' && ctx.nodes[0].obj.add === 'a.example.com');
+    check('vmess 解析', ctx.nodes.length === 5 && ctx.nodes[0]._type === 'vmess' && ctx.nodes[0].obj.add === 'a.example.com');
     check('trojan 解析', ctx.nodes[1].password === 'pass@123' && ctx.nodes[1].name === 'Trojan节点' && ctx.nodes[1].query === 'security=tls&sni=b.example.com');
     check('ss 解析', ctx.nodes[2].method === 'aes-256-gcm' && ctx.nodes[2].password === 'secret');
     check('ssr 解析', ctx.nodes[3].password === 'ssrpass' && ctx.nodes[3].name === 'SSR节点');
+    check('vless 解析', ctx.nodes[4]._type === 'vless' && ctx.nodes[4].id === '2a1c1b35-6b5a-4f7c-9e0d-1a2b3c4d5e6f' &&
+        ctx.nodes[4].host === 'e.example.com' && ctx.nodes[4].port === '443' &&
+        ctx.nodes[4].query === 'encryption=none&security=reality&sni=e.example.com&fp=chrome&pbk=PubKey&sid=01&flow=xtls-rprx-vision&type=tcp' &&
+        ctx.nodes[4].name === 'VLESS节点');
     check('节点卡片渲染', els['nodes'].innerHTML.includes('node-card') && els['nodes'].innerHTML.includes('b-vmess'));
     // 委托修改 vmess 地址
     const inputFns = listeners['nodes:input'] || [];
@@ -185,11 +190,14 @@ function finish() {
     check('ss 生成回环', reSS.method === 'aes-256-gcm' && reSS.host === 'c.example.com');
     const reSSR = ctx.parseLink(out[3]);
     check('ssr 生成回环', reSSR.host === 'd.example.com' && reSSR.password === 'ssrpass' && reSSR.name === 'SSR节点');
+    const reVless = ctx.parseLink(out[4]);
+    check('vless 生成回环', reVless.id === '2a1c1b35-6b5a-4f7c-9e0d-1a2b3c4d5e6f' && reVless.host === 'e.example.com' &&
+        reVless.query.includes('security=reality') && reVless.name === 'VLESS节点');
     let threw = false;
     try { ctx.parseLink('ftp://x'); } catch (e) { threw = true; }
     check('非法链接报错', threw);
     ctx.removeNode(0);
-    check('删除节点', ctx.nodes.length === 3);
+    check('删除节点', ctx.nodes.length === 4);
 }
 
 // ---- diff.html ----
