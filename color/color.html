@@ -62,6 +62,66 @@
         .wcag { font-size: 12px; padding: 2px 10px; border-radius: 10px; font-weight: 600; }
         .wcag-pass { background: #e8f5e9; color: #2e7d32; }
         .wcag-fail { background: #ffeef0; color: #c62828; }
+        .wcag-warn { background: #fff8e1; color: #b26a00; }
+        .contrast-preview {
+            margin-top: 12px; padding: 12px 16px; border-radius: 8px;
+            font-size: 15px; letter-spacing: 1px; border: 1px solid #e0e4e8;
+            transition: background 0.15s, color 0.15s;
+        }
+        .contrast-advice { margin-top: 8px; font-size: 13px; color: #666; }
+        .contrast-advice b { color: #333; }
+        /* ---- 取色弹窗 ---- */
+        .modal-mask {
+            position: fixed; inset: 0; z-index: 50; display: none;
+            background: rgba(30, 40, 55, 0.35);
+            align-items: center; justify-content: center;
+        }
+        .modal-mask.show { display: flex; }
+        .picker {
+            background: #fff; border-radius: 12px; padding: 18px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+            width: 300px;
+        }
+        .picker-title {
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 14px; font-weight: 600; color: #333; margin-bottom: 14px;
+        }
+        .picker-close {
+            border: none; background: none; font-size: 18px; color: #aaa;
+            cursor: pointer; padding: 0 4px; line-height: 1;
+        }
+        .picker-close:hover { color: #333; }
+        .sv-box {
+            position: relative; width: 100%; height: 180px; border-radius: 8px;
+            cursor: crosshair; touch-action: none;
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+        }
+        .sv-marker, .hue-marker {
+            position: absolute; width: 14px; height: 14px; border-radius: 50%;
+            border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 1px 3px rgba(0,0,0,0.4);
+            pointer-events: none; transform: translate(-50%, -50%);
+        }
+        .hue-strip {
+            position: relative; height: 14px; border-radius: 999px; margin-top: 14px;
+            background: linear-gradient(to right,
+                hsl(0,100%,50%), hsl(30,100%,50%), hsl(60,100%,50%), hsl(90,100%,50%),
+                hsl(120,100%,50%), hsl(150,100%,50%), hsl(180,100%,50%), hsl(210,100%,50%),
+                hsl(240,100%,50%), hsl(270,100%,50%), hsl(300,100%,50%), hsl(330,100%,50%), hsl(360,100%,50%));
+            cursor: pointer; touch-action: none;
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+        }
+        .hue-marker { top: 50%; }
+        .picker-row { display: flex; gap: 8px; align-items: center; margin-top: 14px; }
+        .picker-preview {
+            width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+        }
+        .picker-hex {
+            flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid #dde1e6;
+            border-radius: 6px; background: #fafbfc;
+            font-family: Consolas, monospace; font-size: 13px; color: #333;
+        }
+        .picker-hex:focus { outline: none; border-color: #4a9eff; }
         @media (max-width: 640px) { .color-layout { flex-direction: column; } }
     </style>
 </head>
@@ -73,8 +133,8 @@
         <div class="panel">
             <div class="color-layout">
                 <div class="preview-col">
-                    <div class="preview-box" id="preview" onclick="copyText(rgbToHex(current.r, current.g, current.b))"></div>
-                    <div class="preview-tip">点击复制 HEX</div>
+                    <div class="preview-box" id="preview" onclick="openPicker()"></div>
+                    <div class="preview-tip">点击打开取色器</div>
                 </div>
                 <div class="form-col">
                     <div class="field-row">
@@ -127,13 +187,27 @@
         <div class="panel">
             <div class="panel-header"><h3>文字对比度</h3></div>
             <div class="contrast-row">
-                <span>当前颜色上的文字可读性:</span>
+                <span>当前颜色上的文字可读性（正文 AA ≥ 4.5 · 大字 AA ≥ 3.0）:</span>
                 <span id="contrastWhite"></span>
                 <span id="contrastBlack"></span>
             </div>
+            <div class="contrast-preview" id="contrastPreview">示例文字 Aa 123 · 星空工具箱</div>
+            <div class="contrast-advice" id="contrastAdvice"></div>
         </div>
     </div>
     <div id="toast"></div>
+    <div class="modal-mask" id="pickerMask">
+        <div class="picker">
+            <div class="picker-title">取色器<button class="picker-close" onclick="closePicker()" aria-label="关闭">×</button></div>
+            <div class="sv-box" id="svBox"><div class="sv-marker" id="svMarker"></div></div>
+            <div class="hue-strip" id="hueStrip"><div class="hue-marker" id="hueMarker"></div></div>
+            <div class="picker-row">
+                <div class="picker-preview" id="pickerPreview"></div>
+                <input type="text" class="picker-hex" id="pickerHex" placeholder="#4a9eff" spellcheck="false">
+                <button class="btn-primary btn-sm" onclick="closePicker()">确定</button>
+            </div>
+        </div>
+    </div>
     <script src="../assets/common.js"></script>
     <script>
         var current = { r: 74, g: 158, b: 255 };
@@ -164,6 +238,15 @@
             return offsets.map(function (d) {
                 return [(((h + d) % 360) + 360) % 360, s, l];
             });
+        }
+
+        // 色域面板坐标 → [h, s, l]。面板渲染 = 基色上叠白色左渐层 + 黑色下渐层：
+        // 右上角是纯基色（l=50），左上角白色，底边黑色（纯函数，可测）
+        function pickSv(h, fx, fy) {
+            var x = clamp(fx, 0, 1), y = clamp(fy, 0, 1);
+            return [(((h % 360) + 360) % 360),
+                    Math.round(x * 100),
+                    Math.round((100 - 50 * x) * (1 - y))];
         }
 
         function rgbToHsl(r, g, b) {
@@ -210,9 +293,32 @@
             return (hi + 0.05) / (lo + 0.05);
         }
 
-        function wcagTag(ratio, level) {
-            var pass = level === 'AA' ? ratio >= 4.5 : ratio >= 7;
+        // WCAG 判定：正文 AA 4.5 / AAA 7；大字（≥24px 或 ≥18.7px 粗体）AA 3.0 / AAA 4.5
+        function wcagTag(ratio, level, large) {
+            var th = level === 'AA' ? (large ? 3 : 4.5) : (large ? 4.5 : 7);
+            var pass = ratio >= th;
             return '<span class="wcag ' + (pass ? 'wcag-pass' : 'wcag-fail') + '">' + level + ' ' + (pass ? '通过' : '不通过') + '</span>';
+        }
+
+        // 一行对比度结论：正文标签 + 大字可达性补充（纯函数，可测）
+        function contrastLine(ratio) {
+            var html = '对比度 <b>' + ratio.toFixed(2) + '</b> ' + wcagTag(ratio, 'AA') + ' ' + wcagTag(ratio, 'AAA');
+            if (ratio >= 3 && ratio < 4.5) {
+                html += ' <span class="wcag wcag-warn" title="大字（≥24px，或 ≥18.7px 粗体）标准">大字可通过 AA</span>';
+            } else if (ratio >= 4.5 && ratio < 7) {
+                html += ' <span class="wcag wcag-warn" title="大字（≥24px，或 ≥18.7px 粗体）标准">大字可通过 AAA</span>';
+            }
+            return html;
+        }
+
+        // 取对比度高的一方给建议（纯函数，可测）
+        function contrastAdvice(rw, rb) {
+            var useWhite = rw >= rb;
+            var best = Math.max(rw, rb);
+            var level = best >= 7 ? '可达 AAA（正文标准）' :
+                        best >= 4.5 ? '可达 AA（正文）· AAA（大字）' :
+                        best >= 3 ? '可达 AA（大字标准）' : '不满足 WCAG 最低要求';
+            return { color: useWhite ? '#ffffff' : '#000000', label: useWhite ? '白字' : '黑字', level: level, ratio: best };
         }
 
         function setFromRgb(r, g, b) {
@@ -258,8 +364,12 @@
 
             var rw = contrastRatio(c, { r: 255, g: 255, b: 255 });
             var rb = contrastRatio(c, { r: 0, g: 0, b: 0 });
-            $('contrastWhite').innerHTML = '白字对比度 ' + rw.toFixed(2) + ' ' + wcagTag(rw, 'AA') + ' ' + wcagTag(rw, 'AAA');
-            $('contrastBlack').innerHTML = '黑字对比度 ' + rb.toFixed(2) + ' ' + wcagTag(rb, 'AA') + ' ' + wcagTag(rb, 'AAA');
+            $('contrastWhite').innerHTML = '白字 ' + contrastLine(rw);
+            $('contrastBlack').innerHTML = '黑字 ' + contrastLine(rb);
+            var adv = contrastAdvice(rw, rb);
+            $('contrastPreview').style.background = hex;
+            $('contrastPreview').style.color = adv.color;
+            $('contrastAdvice').innerHTML = '建议搭配 <b>' + adv.label + '</b> · 对比度 ' + adv.ratio.toFixed(2) + ' · ' + adv.level;
             renderHarmony();
             renderSaved();
         }
@@ -324,6 +434,51 @@
             }).join('') : '<span class="saved-empty">还没有收藏颜色，调好颜色后点下方按钮收藏</span>';
         }
 
+        // ---- 弹窗取色器：色域面板 + 色相条，与主表单双向联动 ----
+        var pickerHue = 212;
+
+        function openPicker() {
+            renderPicker(rgbToHsl(current.r, current.g, current.b));
+            $('pickerMask').classList.add('show');
+        }
+
+        function closePicker() { $('pickerMask').classList.remove('show'); }
+
+        function renderPicker(hsl) {
+            pickerHue = hsl.h;
+            $('svBox').style.background =
+                'linear-gradient(to top, #000, rgba(0,0,0,0)),' +
+                'linear-gradient(to right, #fff, rgba(255,255,255,0)),' +
+                'hsl(' + hsl.h + ', 100%, 50%)';
+            var mx = hsl.s / 100;
+            $('svMarker').style.left = (mx * 100) + '%';
+            $('svMarker').style.top = ((1 - hsl.l / (100 - 50 * mx)) * 100) + '%';
+            $('hueMarker').style.left = (hsl.h / 3.6) + '%';
+            var rgb = hslToRgb(hsl.h, hsl.s, hsl.l);
+            $('pickerPreview').style.background = rgbToHex(rgb.r, rgb.g, rgb.b);
+            if (document.activeElement !== $('pickerHex')) {
+                $('pickerHex').value = rgbToHex(rgb.r, rgb.g, rgb.b);
+            }
+            setFromRgb(rgb.r, rgb.g, rgb.b);
+        }
+
+        // 在元素上按下并拖动，回调持续收到 pointer 事件
+        function bindDrag(el, cb) {
+            el.addEventListener('pointerdown', function (e) {
+                if (el.setPointerCapture) { try { el.setPointerCapture(e.pointerId); } catch (err) {} }
+                cb(e);
+                function mv(ev) { cb(ev); }
+                function up() {
+                    el.removeEventListener('pointermove', mv);
+                    el.removeEventListener('pointerup', up);
+                    el.removeEventListener('pointercancel', up);
+                }
+                el.addEventListener('pointermove', mv);
+                el.addEventListener('pointerup', up);
+                el.addEventListener('pointercancel', up);
+            });
+        }
+
         function fmtItem(k, v) {
             return '<div class="fmt-item" onclick="copyText(\'' + v.replace(/'/g, '') + '\')"><span class="k">' + k + '</span><span>' + v + '</span></div>';
         }
@@ -353,6 +508,30 @@
             if (t) { harmonyType = t; renderHarmonyTypes(); renderHarmony(); }
         });
         renderHarmonyTypes();
+
+        // 取色弹窗：色域面板 / 色相条拖动、hex 输入、遮罩与 ESC 关闭
+        bindDrag($('svBox'), function (e) {
+            var r = $('svBox').getBoundingClientRect();
+            var hsl = pickSv(pickerHue, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+            renderPicker({ h: hsl[0], s: hsl[1], l: hsl[2] });
+        });
+        bindDrag($('hueStrip'), function (e) {
+            var r = $('hueStrip').getBoundingClientRect();
+            var cur = rgbToHsl(current.r, current.g, current.b);
+            renderPicker({ h: Math.round(clamp((e.clientX - r.left) / r.width, 0, 1) * 360), s: cur.s, l: cur.l });
+        });
+        $('pickerHex').addEventListener('input', function () {
+            var rgb = hexToRgb(this.value);
+            if (rgb) renderPicker(rgbToHsl(rgb.r, rgb.g, rgb.b));
+        });
+        $('pickerMask').addEventListener('click', function (e) {
+            if (e.target === this) closePicker();
+        });
+        if (document.addEventListener) {
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') closePicker();
+            });
+        }
 
         // 事件：HEX 输入
         $('hexInput').addEventListener('input', function () {

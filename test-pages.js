@@ -428,6 +428,10 @@ function finish() {
     const wrapH = ctx.buildHarmony(350, 50, 40, 'comp');
     check('色相拥绕 0/360', wrapH[1][0] === 170 && ctx.buildHarmony(10, 50, 40, 'analog')[0][0] === 310);
     check('调和色合法 hsl', ctx.buildHarmony(120, 60, 40, 'square').every(c => c[0] >= 0 && c[0] < 360 && c[1] === 60 && c[2] === 40));
+    check('色域面板坐标', JSON.stringify(ctx.pickSv(120, 0, 0)) === JSON.stringify([120, 0, 100]) &&
+        JSON.stringify(ctx.pickSv(120, 1, 1)) === JSON.stringify([120, 100, 0]) &&
+        JSON.stringify(ctx.pickSv(120, 1, 0)) === JSON.stringify([120, 100, 50]));
+    check('色域坐标越界夹取', JSON.stringify(ctx.pickSv(120, -1, 2)) === JSON.stringify([120, 0, 0]));
     const hslRed = ctx.rgbToHsl(255, 0, 0);
     const backRed = ctx.hslToRgb(hslRed.h, hslRed.s, hslRed.l);
     check('hsl 精确回环', JSON.stringify(backRed) === JSON.stringify({ r: 255, g: 0, b: 0 }));
@@ -436,6 +440,15 @@ function finish() {
     check('hsl 近似回环', Math.abs(back.r - 74) <= 3 && Math.abs(back.g - 158) <= 3 && Math.abs(back.b - 255) <= 1);
     check('黑白对比度 21', Math.abs(ctx.contrastRatio({ r: 0, g: 0, b: 0 }, { r: 255, g: 255, b: 255 }) - 21) < 0.1);
     check('WCAG 标签', ctx.wcagTag(21, 'AAA').includes('wcag-pass') && ctx.wcagTag(3, 'AA').includes('wcag-fail'));
+    check('WCAG 大字标准', ctx.wcagTag(3, 'AA', true).includes('wcag-pass') &&
+        ctx.wcagTag(3, 'AAA', true).includes('wcag-fail') && ctx.wcagTag(4.5, 'AAA', true).includes('wcag-pass'));
+    check('对比度行大字补充', ctx.contrastLine(3.5).includes('大字可通过 AA') &&
+        ctx.contrastLine(5).includes('大字可通过 AAA') && !ctx.contrastLine(7.5).includes('大字'));
+    const advW = ctx.contrastAdvice(2.5, 7.6);
+    check('对比度建议选更优一方', advW.label === '黑字' && advW.color === '#000000' && advW.ratio === 7.6 &&
+        advW.level.includes('AAA'));
+    const advL = ctx.contrastAdvice(3.2, 2.0);
+    check('对比度建议大字兜底', advL.label === '白字' && advL.level.includes('大字'));
     ctx.setFromRgb(255, 0, 0);
     check('setFromRgb 联动', JSON.stringify(ctx.current) === JSON.stringify({ r: 255, g: 0, b: 0 }));
 }
