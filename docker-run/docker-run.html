@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>docker run 转 Compose</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .container { max-width: 1360px; }
+        .io-workspace { display: flex; gap: 16px; align-items: stretch; }
+        .io-workspace > .panel { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+        .io-workspace .panel-header { flex-shrink: 0; }
+        .io-workspace .editor-wrap { flex: 1; height: auto; min-height: 380px; height: calc(100vh - 330px); }
+        .warn-list { margin-top: 10px; font-size: 12px; color: #b26a00; line-height: 1.8; display: none; }
+        .warn-list.show { display: block; }
+        @media (max-width: 900px) {
+            .io-workspace { flex-direction: column; }
+            .io-workspace .editor-wrap { height: 300px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>docker run 转 Compose</h1>
+        <p class="subtitle">一行一条 docker run 命令 · 多条自动生成多服务 · 未知参数明确警告</p>
+
+        <div class="btn-row" style="margin-top:14px;">
+            <button class="btn-primary" onclick="convert()">转换</button>
+            <button class="btn-success" onclick="copyOutput()">复制结果</button>
+            <button class="btn-danger btn-sm" onclick="clearAll()">清空</button>
+        </div>
+
+        <div class="io-workspace">
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>docker run 命令</h3>
+                    <span class="badge badge-info" id="sizeBadge"></span>
+                </div>
+                <div class="editor-wrap">
+                    <div class="line-numbers" id="inputLines"><div>1</div></div>
+                    <textarea id="input" wrap="off" placeholder="docker run -d --name web -p 8080:80 -e KEY=val nginx:latest"></textarea>
+                </div>
+                <div class="error-detail" id="errorDetail"></div>
+                <div class="warn-list" id="warnList"></div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>docker-compose.yml</h3>
+                    <span class="badge" id="statusBadge"></span>
+                </div>
+                <div class="editor-wrap">
+                    <div class="line-numbers" id="outputLines"><div>1</div></div>
+                    <textarea id="output" wrap="off" readonly placeholder="转换结果将显示在这里..."></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        // ================= 命令行切词（纯函数，可测） =================
+        function tokenize(cmd) {
+            var tokens = [], cur = '', quote = null;
+            for (var i = 0; i < cmd.length; i++) {
+                var ch = cmd[i];
+                if (quote === "'") {
+                    if (ch === "'") quote = null; else cur += ch;
+                } else if (quote === '"') {
+                    if (ch === '"') quote = null;
+                    else if (ch === '\\' && i + 1 < cmd.length && (cmd[i + 1] === '"' || cmd[i + 1] === '\\')) cur += cmd[++i];
+                    else cur += ch;
+                } else if (ch === "'" || ch === '"') {
+                    quote = ch;
+                } else if (ch === '\\' && i + 1 < cmd.length) {
+                    cur += cmd[++i];
+                } else if (/\s/.test(ch)) {
+                    if (cur) { tokens.push(cur); cur = ''; }
+                } else {
+                    cur += ch;
+                }
+            }
+            if (quote) throw new Error('引号未闭合');
+            if (cur) tokens.push(cur);
+            return tokens;
+        }
+
+        // ================= 解析（纯函数，可测） =================
+
+        // 单值/多值长参数与短参数映射
+        var VALUE_FLAGS = {
+            '--name': 'name', '--hostname': 'hostname', '-h': 'hostname',
+            '--network': 'network', '--net': 'network', '--restart': 'restart',
+            '--user': 'user', '-u': 'user', '--workdir': 'workdir', '-w': 'workdir',
+            '--entrypoint': 'entrypoint', '--memory': 'memory', '-m': 'memory',
+            '--cpus': 'cpus', '--shm-size': 'shmSize', '--pull': 'pull', '--platform': 'platform',
+            '--gpus': 'gpus'
+        };
+        var MULTI_FLAGS = {
+            '-p': 'ports', '--publish': 'ports',
+            '-v': 'volumes', '--volume': 'volumes',
+            '-e': 'env', '--env': 'env',
+            '-l': 'labels', '--label': 'labels',
+            '--add-host': 'extraHosts', '--dns': 'dns', '--device': 'devices',
+            '--cap-add': 'capAdd', '--cap-drop': 'capDrop',
+            '--expose': 'exposes', '--link': 'links', '--env-file': 'envFiles'
+        };
+        // 短参数值可连写：-p8080:80 / -eK=V / -v/a:/b
+        var ATTACHABLE = { p: 'ports', e: 'env', v: 'volumes', m: 'memory' };
+        var BOOL_FLAGS = {
+            '-d': 'detach', '--detach': 'detach',
+            '-i': 'stdinOpen', '--interactive': 'stdinOpen',
+            '-t': 'tty', '--tty': 'tty',
+            '--rm': 'rm', '--privileged': 'privileged', '--init': 'init',
+            '--read-only': 'readOnly', '--oom-kill-disable': 'oomKillDisable'
+        };
+
+        function emptyService() {
+            return {
+                image: '', name: '', command: [], ignored: [],
+                ports: [], volumes: [], env: [], labels: [], extraHosts: [],
+                dns: [], devices: [], capAdd: [], capDrop: [], exposes: [], links: [], envFiles: []
+            };
+        }
+
+        function takeValue(tokens, i, inline) {
+            if (inline !== undefined) return [inline, i];
+            if (i + 1 >= tokens.length) throw new Error('参数缺少值：' + tokens[i]);
+            return [tokens[i + 1], i + 1];
+        }
+
+        // 解析单条 docker run 命令（tokens 不含开头的 docker / run）
+        function parseRunTokens(tokens) {
+            var s = emptyService();
+            var bools = {};
+            var positional = [];
+            var i = 0, afterDash = false;
+            while (i < tokens.length) {
+                var tk = tokens[i];
+                // docker 语义：镜像名之后的所有内容都是 command，不再当参数解析
+                if (positional.length >= 1) { positional.push(tk); i++; continue; }
+                if (afterDash) { positional.push(tk); i++; continue; }
+                if (tk === '--') { afterDash = true; i++; continue; }
+
+                if (BOOL_FLAGS[tk]) { bools[BOOL_FLAGS[tk]] = true; i++; continue; }
+                // 组合短布尔：-it / -dit
+                if (/^-[dit]+$/.test(tk)) {
+                    for (var j = 1; j < tk.length; j++) bools[{ d: 'detach', i: 'stdinOpen', t: 'tty' }[tk[j]]] = true;
+                    i++; continue;
+                }
+                // 长参数 --flag=value
+                var eq = tk.indexOf('=');
+                if (tk.slice(0, 2) === '--' && eq > 0) {
+                    var flag = tk.slice(0, eq), val = tk.slice(eq + 1);
+                    if (VALUE_FLAGS[flag]) s[VALUE_FLAGS[flag]] = val;
+                    else if (MULTI_FLAGS[flag]) s[MULTI_FLAGS[flag]].push(val);
+                    else if (BOOL_FLAGS[flag]) bools[BOOL_FLAGS[flag]] = val !== 'false';
+                    else s.ignored.push(flag);
+                    i++; continue;
+                }
+                if (VALUE_FLAGS[tk]) {
+                    var got = takeValue(tokens, i);
+                    s[VALUE_FLAGS[tk]] = got[0]; i = got[1] + 1; continue;
+                }
+                if (MULTI_FLAGS[tk]) {
+                    var got2 = takeValue(tokens, i);
+                    s[MULTI_FLAGS[tk]].push(got2[0]); i = got2[1] + 1; continue;
+                }
+                // 短参数连写：-p8080:80
+                if (tk.length > 2 && tk[0] === '-' && tk[1] !== '-' && ATTACHABLE[tk[1]]) {
+                    s[ATTACHABLE[tk[1]]].push(tk.slice(2)); i++; continue;
+                }
+                if (tk.slice(0, 2) === '--') {
+                    // 未知长参数：按惯例吃掉紧随其后的值（不以 - 开头），避免把值误当镜像名
+                    if (i + 1 < tokens.length && tokens[i + 1][0] !== '-') {
+                        s.ignored.push(tk + ' ' + tokens[i + 1]);
+                        i += 2;
+                    } else {
+                        s.ignored.push(tk);
+                        i++;
+                    }
+                    continue;
+                }
+                if (tk[0] === '-') { s.ignored.push(tk); i++; continue; }
+                positional.push(tk); i++;
+            }
+            if (!positional.length) throw new Error('缺少镜像名');
+            s.image = positional[0];
+            s.command = positional.slice(1);
+            s.bools = bools;
+            return s;
+        }
+
+        function parseDockerRun(lineRaw) {
+            var tokens = tokenize(lineRaw);
+            var k = 0;
+            if (tokens[k] === 'docker') k++;
+            if (tokens[k] === 'container') k++;
+            if (tokens[k] !== 'run' && tokens[k] !== 'create') throw new Error('不是 docker run 命令');
+            return parseRunTokens(tokens.slice(k + 1));
+        }
+
+        // ================= 生成 compose（纯函数，可测） =================
+
+        function yamlScalar(s) {
+            s = String(s);
+            if (/^(true|false|null|~|[-+]?\d+(\.\d+)?)$/i.test(s)) return JSON.stringify(s);
+            if (/[#\[\]{}&*!|>'"%@`,?]/.test(s) || /:\s/.test(s) || /:\s*$/.test(s) || /^\s|\s$/.test(s) || s === '') return JSON.stringify(s);
+            return s;
+        }
+
+        function serviceName(s, idx, used) {
+            var base = (s.name || s.image).toLowerCase()
+                .replace(/^[a-z0-9.-]+\//, '').replace(/[@:].*$/, '')
+                .replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+            if (!base) base = 'service';
+            var name = base, n = 2;
+            while (used[name]) name = base + '-' + (n++);
+            used[name] = true;
+            return name;
+        }
+
+        function boolLine(lines, indent, key, val) {
+            if (val) lines.push(indent + key + ': true');
+        }
+
+        function listBlock(lines, indent, key, items, forceQuote) {
+            if (!items.length) return;
+            lines.push(indent + key + ':');
+            items.forEach(function (it) {
+                lines.push(indent + '  - ' + (forceQuote ? JSON.stringify(String(it)) : yamlScalar(it)));
+            });
+        }
+
+        function toCompose(services) {
+            var used = {};
+            var lines = ['services:'];
+            services.forEach(function (s, idx) {
+                var name = serviceName(s, idx, used);
+                var ind = '  ';
+                lines.push(ind + name + ':');
+                ind += '  ';
+                lines.push(ind + 'image: ' + yamlScalar(s.image));
+                if (s.name) lines.push(ind + 'container_name: ' + yamlScalar(s.name));
+                if (s.bools.detach) { /* detach 是 compose 的默认行为，无需输出 */ }
+                boolLine(lines, ind, 'stdin_open', s.bools.stdinOpen);
+                boolLine(lines, ind, 'tty', s.bools.tty);
+                boolLine(lines, ind, 'privileged', s.bools.privileged);
+                boolLine(lines, ind, 'init', s.bools.init);
+                boolLine(lines, ind, 'read_only', s.bools.readOnly);
+                boolLine(lines, ind, 'oom_kill_disable', s.bools.oomKillDisable);
+                if (s.gpus) lines.push(ind + 'gpus: ' + yamlScalar(s.gpus));
+                if (s.bools.rm) lines.push(ind + '# --rm：compose 中容器默认随 down 清理，可用 docker compose run --rm 代替');
+                if (s.restart) lines.push(ind + 'restart: ' + yamlScalar(s.restart));
+                if (s.network) lines.push(ind + 'network_mode: ' + yamlScalar(s.network));
+                if (s.hostname) lines.push(ind + 'hostname: ' + yamlScalar(s.hostname));
+                if (s.user) lines.push(ind + 'user: ' + yamlScalar(s.user));
+                if (s.workdir) lines.push(ind + 'working_dir: ' + yamlScalar(s.workdir));
+                if (s.entrypoint) lines.push(ind + 'entrypoint: ' + JSON.stringify(s.entrypoint));
+                if (s.command.length) {
+                    lines.push(ind + 'command:');
+                    s.command.forEach(function (c) { lines.push(ind + '  - ' + JSON.stringify(c)); });
+                }
+                listBlock(lines, ind, 'ports', s.ports, true);
+                listBlock(lines, ind, 'volumes', s.volumes, true);
+                listBlock(lines, ind, 'environment', s.env, true);
+                listBlock(lines, ind, 'labels', s.labels, true);
+                listBlock(lines, ind, 'extra_hosts', s.extraHosts, true);
+                listBlock(lines, ind, 'dns', s.dns, false);
+                listBlock(lines, ind, 'devices', s.devices, true);
+                listBlock(lines, ind, 'cap_add', s.capAdd, false);
+                listBlock(lines, ind, 'cap_drop', s.capDrop, false);
+                listBlock(lines, ind, 'expose', s.exposes, false);
+                if (s.memory) lines.push(ind + 'mem_limit: ' + yamlScalar(s.memory));
+                if (s.cpus) lines.push(ind + 'cpus: ' + yamlScalar(s.cpus));
+                if (s.shmSize) lines.push(ind + 'shm_size: ' + yamlScalar(s.shmSize));
+                if (s.links.length) {
+                    lines.push(ind + '# --link 已废弃，建议改用 networks 让服务互访：');
+                    lines.push(ind + '# links: ' + JSON.stringify(s.links));
+                }
+                if (s.envFiles.length) {
+                    lines.push(ind + 'env_file:');
+                    s.envFiles.forEach(function (f) { lines.push(ind + '  - ' + yamlScalar(f)); });
+                }
+                s.ignored.forEach(function (ig) {
+                    lines.push(ind + '# 未转换的参数：' + ig + '（compose 无直接对应，请手动确认）');
+                });
+            });
+            return lines.join('\n') + '\n';
+        }
+
+        // ================= UI =================
+
+        function convert() {
+            var lines = $('input').value.split('\n').map(function (l) { return l.trim(); }).filter(Boolean);
+            if (!lines.length) { showToast('请粘贴 docker run 命令'); return; }
+            var services = [], errors = [];
+            lines.forEach(function (l, i) {
+                try {
+                    services.push(parseDockerRun(l));
+                } catch (e) {
+                    errors.push('第 ' + (i + 1) + ' 行：' + e.message);
+                }
+            });
+            $('errorDetail').textContent = errors.join('；');
+            $('errorDetail').style.display = errors.length ? 'block' : 'none';
+            if (!services.length) return;
+
+            var yml = toCompose(services);
+            $('output').value = yml;
+            updateLineNumbers($('output'), $('outputLines'));
+
+            var warns = [];
+            services.forEach(function (s) {
+                if (s.ignored.length) warns.push((s.name || s.image) + '：' + s.ignored.join('、'));
+            });
+            $('warnList').textContent = warns.length ? '已忽略的参数：' + warns.join('；') : '';
+            $('warnList').classList.toggle('show', warns.length > 0);
+
+            $('statusBadge').className = 'badge badge-ok';
+            $('statusBadge').textContent = '已转换 ' + services.length + ' 个服务';
+            showToast('已转换 ' + services.length + ' 个服务');
+        }
+
+        function copyOutput() {
+            var t = $('output').value;
+            if (!t) { showToast('没有可复制的内容'); return; }
+            navigator.clipboard.writeText(t).then(function () { showToast('已复制到剪贴板'); });
+        }
+
+        function clearAll() {
+            $('input').value = '';
+            $('output').value = '';
+            $('errorDetail').textContent = '';
+            $('errorDetail').style.display = 'none';
+            $('warnList').classList.remove('show');
+            $('statusBadge').textContent = '';
+            updateLineNumbers($('input'), $('inputLines'));
+            updateLineNumbers($('output'), $('outputLines'));
+            updateSize('input', 'sizeBadge');
+        }
+
+        bindEditor('input', 'inputLines', 'sizeBadge');
+        bindEditor('output', 'outputLines');
+    </script>
+</body>
+</html>

@@ -408,6 +408,67 @@ function finish() {
     check('批量 UUID', ctx.$('uuidOut').textContent.split('\n').length === 3);
 }
 
+// ---- cron.html ----
+{
+    const { ctx } = loadPage('cron/cron.html');
+    const c1 = ctx.parseCron('*/15 * * * *');
+    check('cron */15 展开', JSON.stringify(c1.min) === '[0,15,30,45]' && JSON.stringify(c1.sec) === '[0]' && !c1.six);
+    check('cron 星期名与区间', JSON.stringify(ctx.parseCron('0 8 * * MON-FRI').dow) === '[1,2,3,4,5]');
+    const c3 = ctx.parseCron('30 5 8-18/2 1,15 3,6 ?');
+    check('cron 6 位/区间步长/问号', c3.six && JSON.stringify(c3.sec) === '[30]' && JSON.stringify(c3.hour) === '[8,10,12,14,16,18]' &&
+        JSON.stringify(c3.dom) === '[1,15]' && c3.dow.length === 7);
+    check('cron 周日 7 归一', JSON.stringify(ctx.parseCron('0 0 * * 7').dow) === '[0]');
+    check('cron 宏 @daily', ctx.parseCron('@daily').min[0] === 0 && ctx.parseCron('@daily').hour[0] === 0);
+    let threw = false;
+    try { ctx.parseCron('61 * * * *'); } catch (e) { threw = true; }
+    check('cron 越界报错', threw);
+    threw = false;
+    try { ctx.parseCron('@reboot'); } catch (e) { threw = true; }
+    check('cron @reboot 报错', threw);
+    const from = new Date(2026, 8, 18, 10, 0, 0).getTime();
+    check('cron 每天 8 点下次运行', new Date(ctx.nextRuns(ctx.parseCron('0 8 * * *'), from, 2).runs[0]).getDate() === 19);
+    check('cron 每 20 分钟向上取整', new Date(ctx.nextRuns(ctx.parseCron('*/20 * * * *'), from, 1).runs[0]).getMinutes() === 20);
+    const leap = new Date(ctx.nextRuns(ctx.parseCron('0 0 29 2 *'), from, 1).runs[0]);
+    check('cron 闰日推算到 2028', leap.getFullYear() === 2028 && leap.getMonth() === 1 && leap.getDate() === 29);
+    check('cron 日周取或语义', new Date(ctx.nextRuns(ctx.parseCron('0 0 1 * 0'), from, 1).runs[0]).getDay() === 0);
+    check('cron 描述每 15 分钟', ctx.describeCron(ctx.parseCron('*/15 * * * *')) === '每 15 分钟');
+    check('cron 描述每天 8 点', ctx.describeCron(ctx.parseCron('0 8 * * *')) === '每天 08:00');
+    check('cron 描述工作日', ctx.describeCron(ctx.parseCron('0 8 * * 1-5')) === '每周一、周二、周三、周四、周五 08:00');
+    check('cron 描述每月 1 日', ctx.describeCron(ctx.parseCron('0 0 1 * *')) === '每月 1 日 00:00');
+    check('cron 描述闰日', ctx.describeCron(ctx.parseCron('0 0 29 2 *')) === '每年 2 月 的 29 日 00:00');
+    check('cron 描述区间步长', ctx.describeCron(ctx.parseCron('0 9-18/2 * * *')) === '每天 09:00 - 17:00 每 2 小时');
+    check('cron 描述多时刻', ctx.describeCron(ctx.parseCron('30 8,20 * * *')) === '每天 08:30、20:30');
+}
+
+// ---- docker-run.html ----
+{
+    const { ctx, els } = loadPage('docker-run/docker-run.html');
+    check('tokenize 引号与转义', JSON.stringify(ctx.tokenize("run -e A='b c' --name \"web x\" -p 80\\:80")) ===
+        JSON.stringify(['run', '-e', 'A=b c', '--name', 'web x', '-p', '80:80']));
+    const s = ctx.parseDockerRun("docker run -dit --name web --restart unless-stopped -p 8080:80 -p443:443 -e KEY=val -e FLAG -v /data:/data --network host -m 512m --cpus 1.5 nginx:latest nginx -g 'daemon off;'");
+    check('docker 解析基础', s.image === 'nginx:latest' && s.name === 'web' && s.ports.length === 2 &&
+        s.env.join(',') === 'KEY=val,FLAG' && s.volumes[0] === '/data:/data' && s.restart === 'unless-stopped');
+    check('docker 组合短参与连写', s.bools.detach && s.bools.stdinOpen && s.bools.tty && s.ports[1] === '443:443');
+    check('docker 资源限制', s.memory === '512m' && s.cpus === '1.5');
+    check('docker 命令部分', JSON.stringify(s.command) === JSON.stringify(['nginx', '-g', 'daemon off;']));
+    const yml = ctx.toCompose([s]);
+    check('compose 生成', yml.includes('services:') && yml.includes('image: nginx:latest') &&
+        yml.includes('container_name: web') && yml.includes('- "8080:80"') &&
+        yml.includes('restart: unless-stopped') && yml.includes('network_mode: host') &&
+        yml.includes('mem_limit: 512m') && yml.includes('stdin_open: true'));
+    const y2 = ctx.toCompose([ctx.parseDockerRun('docker run -d --name app redis:7'), ctx.parseDockerRun('docker run -d --name app mongo:6')]);
+    check('compose 重名自动加后缀', y2.includes('  app:') && y2.includes('  app-2:'));
+    const u = ctx.parseDockerRun('docker run --gpus all --read-only --storage-opt size=10G nginx');
+    check('docker gpus/read-only 支持', u.gpus === 'all' && u.bools.readOnly && u.image === 'nginx');
+    check('docker 未知参数收集', u.ignored.some(x => x.indexOf('--storage-opt') === 0));
+    let threw = false;
+    try { ctx.parseDockerRun('ls -la'); } catch (e) { threw = true; }
+    check('docker 非 run 命令报错', threw);
+    els['input'].value = 'docker run -d --name web -p 8080:80 nginx:latest';
+    ctx.convert();
+    check('docker UI 转换', els['output'].value.includes('container_name: web') && els['statusBadge'].textContent.includes('1 个服务'));
+}
+
 // ---- jwt.html ----
 {
     const { ctx, els } = loadPage('jwt/jwt.html');

@@ -13,6 +13,8 @@
 | JWT 解析 | [jwt/jwt.html](jwt/jwt.html) | 解码 Header/Payload，过期时间与剩余有效期提醒 |
 | 哈希计算 | [hash/hash.html](hash/hash.html) | MD5 / SHA-1 / SHA-256 / SHA-512，文本与文件 |
 | 时间戳转换 | [time/time.html](time/time.html) | 时间戳与日期互转，秒/毫秒自动识别 |
+| Cron 表达式解析器 | [cron/cron.html](cron/cron.html) | 5/6 位字段与宏解析，中文说明，未来 8 次运行时间推算 |
+| docker run 转 Compose | [docker-run/docker-run.html](docker-run/docker-run.html) | docker run 命令转 docker-compose.yml，多行多服务，未知参数警告 |
 
 **文本处理**
 

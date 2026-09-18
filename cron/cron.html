@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cron 表达式解析器</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .cron-input-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        #input {
+            flex: 1; min-width: 220px; padding: 12px 14px;
+            border: 1px solid #dde1e6; border-radius: 8px; background: #fafbfc;
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 20px; color: #333;
+            letter-spacing: 1px;
+        }
+        #input:focus { outline: none; border-color: #4a9eff; box-shadow: 0 0 0 2px rgba(74,158,255,0.15); }
+        .presets { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .preset {
+            padding: 4px 12px; border-radius: 999px; font-size: 12px; cursor: pointer;
+            border: 1px solid #dde1e6; background: #fafbfc; color: #666;
+            font-family: 'Consolas', 'Courier New', monospace; font-family: inherit;
+        }
+        .preset code { font-family: 'Consolas', 'Courier New', monospace; }
+        .preset:hover { border-color: #4a9eff; color: #333; }
+        .error-detail { margin-top: 10px; }
+        .desc-line {
+            font-size: 18px; color: #2c3e50; font-weight: 600;
+            padding: 10px 2px 14px;
+        }
+        .field-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .field-table th, .field-table td {
+            text-align: left; padding: 7px 10px; border-bottom: 1px solid #eef1f4;
+        }
+        .field-table th { color: #999; font-weight: 500; font-size: 12px; }
+        .field-table td.mono, .mono { font-family: 'Consolas', 'Courier New', monospace; }
+        .field-table td.val { color: #555; word-break: break-all; }
+        .runs-list { list-style: none; margin: 0; padding: 0; columns: 2; column-gap: 24px; }
+        .runs-list li {
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 13px;
+            padding: 5px 0; border-bottom: 1px dashed #eef1f4; color: #444;
+            break-inside: avoid;
+        }
+        .runs-list li .wk { color: #4a9eff; margin-left: 6px; }
+        .runs-list li.first .wk { color: #2e7d32; font-weight: 600; }
+        .note { font-size: 12px; color: #aaa; margin-top: 8px; }
+        @media (max-width: 640px) { .runs-list { columns: 1; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Cron 表达式解析器</h1>
+        <p class="subtitle">支持 5/6 位字段与宏 · 中文说明 · 未来 8 次运行时间推算</p>
+
+        <div class="panel">
+            <div class="cron-input-row">
+                <input type="text" id="input" placeholder="*/15 * * * *" spellcheck="false">
+                <button class="btn-primary" onclick="runParse()">解析</button>
+            </div>
+            <div class="presets" id="presets"></div>
+            <div class="error-detail" id="errorDetail"></div>
+        </div>
+
+        <div id="result" style="display:none;">
+            <div class="panel" style="margin-top:20px;">
+                <div class="panel-header"><h3>含义</h3><span class="badge badge-blue" id="modeBadge"></span></div>
+                <div class="desc-line" id="desc"></div>
+                <table class="field-table">
+                    <thead><tr><th style="width:90px">字段</th><th style="width:130px">表达式</th><th>匹配值</th></tr></thead>
+                    <tbody id="fieldRows"></tbody>
+                </table>
+                <div class="note">日和周同时限制时按 UNIX cron 惯例取"或"关系；<code>?</code> 视为 <code>*</code>；周日可写 <code>0</code> 或 <code>7</code>。</div>
+            </div>
+
+            <div class="panel" style="margin-top:20px;">
+                <div class="panel-header"><h3>未来运行时间</h3><span class="badge badge-info" id="runsBadge"></span></div>
+                <ul class="runs-list" id="runs"></ul>
+                <div class="note" id="runsNote"></div>
+            </div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        // ================= 解析（纯函数，可测） =================
+
+        var MONTH_NAMES = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+        var DOW_NAMES = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+        var MACROS = {
+            '@hourly': '0 * * * *',
+            '@daily': '0 0 * * *',
+            '@midnight': '0 0 * * *',
+            '@weekly': '0 0 * * 0',
+            '@monthly': '0 0 1 * *',
+            '@yearly': '0 0 1 1 *',
+            '@annually': '0 0 1 1 *'
+        };
+
+        function expandField(text, min, max, names) {
+            if (names) text = text.replace(/[a-zA-Z]+/g, function (m) {
+                var v = names[m.toLowerCase()];
+                return v === undefined ? m : String(v);
+            });
+            if (text === '?') text = '*';
+            if (text === '') throw new Error('字段为空');
+            var out = {};
+            text.split(',').forEach(function (partRaw) {
+                var part = partRaw;
+                if (!part) throw new Error('列表中存在空项');
+                var step = 1, hadSlash = false;
+                var slash = part.indexOf('/');
+                if (slash >= 0) {
+                    hadSlash = true;
+                    step = parseInt(part.slice(slash + 1), 10);
+                    if (!(step >= 1)) throw new Error('步长必须是正整数：' + partRaw);
+                    part = part.slice(0, slash);
+                }
+                var lo = min, hi = max;
+                if (part !== '*' && part !== '') {
+                    var dash = part.indexOf('-');
+                    if (dash >= 0) {
+                        lo = parseInt(part.slice(0, dash), 10);
+                        hi = parseInt(part.slice(dash + 1), 10);
+                    } else {
+                        lo = parseInt(part, 10);
+                        hi = hadSlash ? max : lo;
+                    }
+                    if (!isFinite(lo) || !isFinite(hi)) throw new Error('无法识别的值：' + partRaw);
+                }
+                if (lo < min || hi > max || lo > hi) throw new Error('数值越界或区间无效：' + partRaw);
+                for (var v = lo; v <= hi; v += step) out[v] = true;
+            });
+            return Object.keys(out).map(Number).sort(function (a, b) { return a - b; });
+        }
+
+        function toMap(arr) { var m = {}; arr.forEach(function (v) { m[v] = true; }); return m; }
+
+        // 解析 5 位（分 时 日 月 周）或 6 位（秒 分 时 日 月 周）cron 表达式
+        function parseCron(exprRaw) {
+            var expr = String(exprRaw || '').trim().replace(/\s+/g, ' ');
+            if (!expr) throw new Error('请输入表达式');
+            if (expr === '@reboot') throw new Error('不支持 @reboot（没有"下次运行"概念）');
+            if (MACROS[expr.toLowerCase()]) expr = MACROS[expr.toLowerCase()];
+            var parts = expr.split(' ');
+            if (parts.length !== 5 && parts.length !== 6) {
+                throw new Error('字段数量应为 5（分 时 日 月 周）或 6（秒 分 时 日 月 周），当前 ' + parts.length + ' 个');
+            }
+            var six = parts.length === 6;
+            var names = ['秒', '分', '时', '日', '月', '周'];
+            var raw = six ? parts : ['0'].concat(parts);
+            try {
+                var sec = expandField(raw[0], 0, 59);
+                var min = expandField(raw[1], 0, 59);
+                var hour = expandField(raw[2], 0, 23);
+                var dom = expandField(raw[3], 1, 31);
+                var mon = expandField(raw[4], 1, 12, MONTH_NAMES);
+                var dow = expandField(raw[5], 0, 7, DOW_NAMES).map(function (d) { return d === 7 ? 0 : d; });
+            } catch (e) {
+                throw new Error(e.message);
+            }
+            dow = Object.keys(toMap(dow)).map(Number).sort(function (a, b) { return a - b; });
+            var c = {
+                six: six, raw: raw, sec: sec, min: min, hour: hour, dom: dom, mon: mon, dow: dow,
+                maps: { sec: toMap(sec), min: toMap(min), hour: toMap(hour), dom: toMap(dom), mon: toMap(mon), dow: toMap(dow) }
+            };
+            c.domRestricted = dom.length !== 31;
+            c.dowRestricted = dow.length !== 7;
+            return c;
+        }
+
+        function matchCron(c, d) {
+            if (!c.maps.mon[d.getMonth() + 1]) return false;
+            if (!c.maps.hour[d.getHours()]) return false;
+            if (!c.maps.min[d.getMinutes()]) return false;
+            if (!c.maps.sec[d.getSeconds()]) return false;
+            var domOk = !!c.maps.dom[d.getDate()];
+            var dowOk = !!c.maps.dow[d.getDay()];
+            if (c.domRestricted && c.dowRestricted) return domOk || dowOk;
+            return domOk && dowOk;
+        }
+
+        // 从 fromMs 起推算 count 次运行时间（上限 5 年，防 2 月 30 日之类的死表达式）
+        function nextRuns(c, fromMs, count) {
+            var d;
+            if (c.six) d = new Date(Math.floor(fromMs / 1000) * 1000 + 1000);
+            else d = new Date(Math.floor(fromMs / 60000) * 60000 + 60000);
+            var stepMs = c.six ? 1000 : 60000;
+            var maxIter = 5 * 366 * 24 * 60 * (c.six ? 60 : 1);
+            var runs = [];
+            for (var i = 0; i < maxIter && runs.length < count; i++) {
+                if (matchCron(c, d)) runs.push(d.getTime());
+                d = new Date(d.getTime() + stepMs);
+            }
+            return { runs: runs, truncated: runs.length < count };
+        }
+
+        // ================= 中文描述（纯函数，可测） =================
+
+        var DOW_ZH = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+        function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+        // 连续区间压缩： [1,2,3,7] → "1-3、7"
+        function compressValues(arr) {
+            var runs = [], start = arr[0], prev = arr[0];
+            for (var i = 1; i < arr.length; i++) {
+                if (arr[i] === prev + 1) { prev = arr[i]; continue; }
+                runs.push([start, prev]); start = arr[i]; prev = arr[i];
+            }
+            runs.push([start, prev]);
+            var parts = runs.map(function (r) { return r[0] === r[1] ? String(r[0]) : r[0] + '-' + r[1]; });
+            if (parts.length > 10) return parts.slice(0, 10).join('、') + ' …共 ' + arr.length + ' 个';
+            return parts.join('、');
+        }
+
+        // 判断字段是全覆盖 / 整段等步长 / 区间等步长 / 离散列表
+        function stepInfo(arr, min, max) {
+            if (arr.length === max - min + 1) return { type: 'all' };
+            if (arr.length >= 2) {
+                var s = arr[1] - arr[0];
+                var uniform = true;
+                for (var i = 1; i < arr.length; i++) if (arr[i] - arr[i - 1] !== s) { uniform = false; break; }
+                if (uniform && s >= 1) {
+                    if (arr[0] === min && arr[arr.length - 1] + s > max) return { type: 'step', step: s };
+                    return { type: 'rangeStep', from: arr[0], to: arr[arr.length - 1], step: s };
+                }
+            }
+            return { type: 'list' };
+        }
+
+        function describeCron(c) {
+            var fullMin = c.min.length === 60, fullHour = c.hour.length === 24,
+                fullDom = c.dom.length === 31, fullMon = c.mon.length === 12, fullDow = c.dow.length === 7;
+            if (fullMin && fullHour && fullDom && fullMon && fullDow && (!c.six || c.sec.length === 60)) {
+                return c.six ? '每秒' : '每分钟';
+            }
+
+            // 日期部分
+            var dowT = c.dow.map(function (d) { return DOW_ZH[d]; }).join('、');
+            var monT = c.mon.map(function (m) { return m + ' 月'; }).join('、');
+            var domT = c.dom.join('、') + ' 日';
+            var monR = !fullMon, domR = !fullDom, dowR = !fullDow;
+            var date;
+            if (monR && domR && dowR) date = '每年 ' + monT + ' 的 ' + domT + ' 或 ' + dowT;
+            else if (monR && domR) date = '每年 ' + monT + ' 的 ' + domT;
+            else if (monR && dowR) date = '每年 ' + monT + ' 的 ' + dowT;
+            else if (domR && dowR) date = '每月 ' + domT + ' 或 ' + dowT;
+            else if (domR) date = '每月 ' + domT;
+            else if (dowR) date = '每' + dowT;
+            else if (monR) date = '每年 ' + monT;
+            else date = '每天';
+
+            // 时刻部分
+            var si = stepInfo(c.min, 0, 59);
+            var hi = stepInfo(c.hour, 0, 23);
+            var time;
+            if (c.min.length === 1 && c.hour.length === 1) {
+                time = pad2(c.hour[0]) + ':' + pad2(c.min[0]);
+                if (c.six && !(c.sec.length === 1 && c.sec[0] === 0)) {
+                    if (c.sec.length === 1) time += ':' + pad2(c.sec[0]);
+                    else time += '（秒：' + compressValues(c.sec) + '）';
+                }
+            } else if (si.type === 'step' && fullHour && (!c.six || c.sec.length === 1)) {
+                return '每 ' + si.step + ' 分钟';
+            } else if (c.min.length === 1 && c.min[0] === 0 && hi.type === 'step') {
+                return date + ' 每 ' + hi.step + ' 小时';
+            } else if (c.min.length === 1 && hi.type === 'rangeStep' && c.min[0] === 0) {
+                time = pad2(hi.from) + ':00 - ' + pad2(hi.to) + ':00 每 ' + hi.step + ' 小时';
+            } else if (c.min.length === 1 && c.hour.length > 1) {
+                time = c.hour.map(function (h) { return pad2(h) + ':' + pad2(c.min[0]); }).join('、');
+            } else if (c.hour.length === 1 && c.min.length > 1) {
+                time = c.min.map(function (m) { return pad2(c.hour[0]) + ':' + pad2(m); }).join('、');
+            } else {
+                time = c.hour.map(pad2).join('、') + ' 时的 ' + c.min.map(pad2).join('、') + ' 分';
+            }
+            return date + ' ' + time;
+        }
+
+        // ================= UI =================
+
+        var FIELD_DEFS = [
+            ['秒', 0, 59, null], ['分', 0, 59, null], ['时', 0, 23, null],
+            ['日', 1, 31, null], ['月', 1, 12, MONTH_NAMES], ['周', 0, 7, DOW_NAMES]
+        ];
+        var PRESETS = [
+            ['*/5 * * * *', '每 5 分钟'],
+            ['0 8 * * *', '每天 8 点'],
+            ['0 8 * * 1-5', '工作日 8 点'],
+            ['0 9-18/2 * * *', '白天每 2 小时'],
+            ['0 0 1 * *', '每月 1 号'],
+            ['0 0 * * 0', '每周日零点'],
+            ['0 0 29 2 *', '四年一度'],
+            ['@daily', '宏：每天零点']
+        ];
+
+        function showError(msg) {
+            $('errorDetail').textContent = msg || '';
+            $('errorDetail').style.display = msg ? 'block' : 'none';
+        }
+
+        function runParse() {
+            var c;
+            try {
+                c = parseCron($('input').value);
+            } catch (e) {
+                showError(e.message);
+                $('result').style.display = 'none';
+                return;
+            }
+            showError('');
+            $('result').style.display = 'block';
+            $('modeBadge').textContent = c.six ? '6 位（含秒）' : '5 位';
+            $('desc').textContent = describeCron(c);
+
+            $('fieldRows').innerHTML = FIELD_DEFS.map(function (f, i) {
+                var arr = [c.sec, c.min, c.hour, c.dom, c.mon, c.dow][i];
+                var full = arr.length === f[2] - f[1] + 1 || (i === 5 && arr.length === 7);
+                return '<tr><td>' + f[0] + '</td>' +
+                    '<td class="mono">' + (c.raw[i] === '0' && i === 0 && !c.six ? '*' : c.raw[i]) + '</td>' +
+                    '<td class="val">' + (full ? '<span style="color:#aaa">每次（*）</span>' : compressValues(arr)) + '</td></tr>';
+            }).join('');
+
+            var nr = nextRuns(c, Date.now(), 8);
+            $('runs').innerHTML = nr.runs.map(function (ms, i) {
+                var d = new Date(ms);
+                var s = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + ' ' +
+                    pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+                return '<li class="' + (i === 0 ? 'first' : '') + '">' + s + '<span class="wk">' + DOW_ZH[d.getDay()] + '</span></li>';
+            }).join('');
+            $('runsBadge').textContent = nr.runs.length + ' 次';
+            $('runsNote').textContent = nr.truncated ? '未来 5 年内没有更多匹配时间了（检查日期与星期的组合是否可能）' : '';
+        }
+
+        $('presets').innerHTML = PRESETS.map(function (p) {
+            return '<button class="preset" data-e="' + p[0] + '"><code>' + p[0] + '</code> ' + p[1] + '</button>';
+        }).join('');
+        $('presets').addEventListener('click', function (e) {
+            var t = e.target.closest ? e.target.closest('.preset') : null;
+            if (!t) return;
+            $('input').value = t.dataset.e;
+            runParse();
+        });
+        $('input').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') runParse();
+        });
+        $('input').addEventListener('input', function () {
+            if (this.value.trim()) runParse();
+        });
+    </script>
+</body>
+</html>
