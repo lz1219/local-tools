@@ -441,7 +441,17 @@
             while (i < items.length && items[i].indent === indent && !isDash(items[i].text)) {
                 var text = items[i].text;
                 var ci = findYamlColon(text);
-                if (ci <= 0) throw new Error('第 ' + items[i].no + ' 行无法解析：' + text);
+                if (ci <= 0) {
+                    // 多行纯标量折叠（如 command: 下逐行列参数，YAML 合法写法）
+                    var folded = [text.trim()];
+                    i++;
+                    while (i < items.length && items[i].indent === indent &&
+                           !isDash(items[i].text) && findYamlColon(items[i].text) <= 0) {
+                        folded.push(items[i].text.trim());
+                        i++;
+                    }
+                    return [folded.join(' '), i];
+                }
                 var key = unquoteYaml(text.slice(0, ci).trim());
                 var rest = text.slice(ci + 1).trim();
                 i++;

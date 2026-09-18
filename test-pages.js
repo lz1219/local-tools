@@ -519,6 +519,39 @@ function finish() {
     var longSyntax = ctx.composeToRun('services:\n  web:\n    image: nginx\n    ports:\n      - target: 80\n        published: 8080\n        protocol: udp\n    volumes:\n      - type: bind\n        source: /data\n        target: /usr/share/nginx\n        read_only: true\n    deploy:\n      resources:\n        limits:\n          memory: 256m\n').commands[0] || '';
     check('compose 长语法与 deploy 限制', longSyntax.includes('--publish 8080:80/udp') &&
         longSyntax.includes('--volume /data:/usr/share/nginx:ro') && longSyntax.includes('--memory 256m'));
+    // 真实案例：command 用多行纯标量折叠（不带 - 前缀）
+    var mysqlYml = [
+        'services:',
+        '  mysql:',
+        '    image: mysql:8.0.42',
+        '    container_name: mysql',
+        '    environment:',
+        '      # 时区上海',
+        '      TZ: Asia/Shanghai',
+        '      MYSQL_ROOT_PASSWORD: rws123',
+        '      MYSQL_DATABASE: ry-cloud',
+        '    ports:',
+        '      - "3306:3306"',
+        '    volumes:',
+        '      - /docker/mysql/data/:/var/lib/mysql/',
+        '      - /docker/mysql/conf/:/etc/mysql/conf.d/',
+        '    command:',
+        '      --default-authentication-plugin=mysql_native_password',
+        '      --character-set-server=utf8mb4',
+        '      --collation-server=utf8mb4_general_ci',
+        '      --explicit_defaults_for_timestamp=true',
+        '      --lower_case_table_names=1',
+        '    privileged: true',
+        '    network_mode: "host"'
+    ].join('\n');
+    var mysqlCmd = ctx.composeToRun(mysqlYml).commands[0] || '';
+    check('compose 多行纯标量 command', mysqlCmd.includes('--name mysql') &&
+        mysqlCmd.includes('--env TZ=Asia/Shanghai') && mysqlCmd.includes('--env MYSQL_ROOT_PASSWORD=rws123') &&
+        mysqlCmd.includes('--publish 3306:3306') &&
+        mysqlCmd.includes('--volume /docker/mysql/data/:/var/lib/mysql/') &&
+        mysqlCmd.includes('--privileged') && mysqlCmd.includes('--network host') &&
+        mysqlCmd.includes('mysql:8.0.42 --default-authentication-plugin=mysql_native_password') &&
+        mysqlCmd.includes('--lower_case_table_names=1'));
     // 回环：run → compose → run 后关键参数不丢
     var rt = ctx.composeToRun(ctx.toCompose([ctx.parseDockerRun("docker run -dit --name web --restart unless-stopped -p 8080:80 -e KEY=val -v /data:/data --network host -m 512m --cpus 1.5 nginx:latest nginx -g 'daemon off;'")]));
     check('run-compose-run 回环', rt.commands.length === 1 && (function () {
