@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>键盘全键体检仪</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .stats-bar {
+            display: flex; gap: 18px; flex-wrap: wrap;
+            background: #f0f4f8; border-radius: 8px; padding: 10px 16px;
+            font-size: 13px; color: #555; margin-bottom: 14px;
+        }
+        .stats-bar b { color: #2c3e50; font-family: 'Consolas', monospace; }
+        .stats-bar .ok { color: #2e7d32; }
+        .stats-bar .warn { color: #e65100; }
+        .kb-wrap { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start; }
+        .kb-main { flex: 1; min-width: 560px; }
+        .kb-side { display: flex; flex-direction: column; gap: 14px; }
+        .kb-row { display: flex; gap: 5px; margin-bottom: 5px; }
+        .k {
+            height: 40px; border-radius: 6px; border: 1px solid #dde1e6;
+            background: #fff; color: #667; font-size: 12px; font-weight: 600;
+            display: flex; align-items: center; justify-content: center;
+            flex: 0 0 auto; cursor: pointer; user-select: none;
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            transition: background 0.08s, color 0.08s, transform 0.05s;
+            padding: 0 2px;
+        }
+        .k.spacer { visibility: hidden; cursor: default; }
+        .k small { font-size: 9px; color: #aab; display: block; font-weight: 400; }
+        .k.kt { background: #e8f5e9; border-color: #a5d6a7; color: #2e7d32; }
+        .k.ka { background: #4a9eff; border-color: #4a9eff; color: #fff; transform: scale(0.94); box-shadow: 0 0 8px rgba(74,158,255,0.5); }
+        .k.ka small { color: #dbe9ff; }
+        .k.kf { background: #ffebee; border-color: #e53935; color: #c62828; text-decoration: line-through; }
+        .k.ks { background: #fff8e1; border-color: #ffb300; color: #8d6e00; box-shadow: 0 0 6px rgba(255,179,0,0.4); }
+        .k.kf.ka, .k.kf.kt { text-decoration: line-through; }
+        .nav-block .kb-row { margin-bottom: 5px; }
+        .key-log {
+            font-family: 'Consolas', monospace; font-size: 12px; color: #455a64;
+            background: #f7f9fb; border: 1px solid #e2e5e9; border-radius: 8px;
+            padding: 10px 14px; min-height: 90px; line-height: 1.9;
+        }
+        .key-log .down { color: #1565c0; }
+        .key-log .up { color: #2e7d32; }
+        .key-log .rep { color: #ef6c00; }
+        .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: #888; margin-top: 12px; }
+        .legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: -2px; border: 1px solid #dde1e6; }
+        .btn-row-top { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>键盘全键体检仪</h1>
+        <p class="subtitle">买新键盘先过这一关：逐键点亮、全键无冲、卡键与双击检测</p>
+
+        <div class="stats-bar" id="statsBar"></div>
+
+        <div class="btn-row-top">
+            <button class="btn-danger btn-sm" onclick="resetKbd()">清空重来</button>
+            <button class="btn-success btn-sm" onclick="copyReport()">复制体检报告</button>
+            <button class="btn-outline btn-sm" id="soundBtn" onclick="toggleSound()">音效：开</button>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>键盘</h3><span class="badge badge-info" id="pressBadge"></span></div>
+            <div class="kb-wrap">
+                <div class="kb-main" id="kbMain"></div>
+                <div class="kb-side">
+                    <div class="nav-block" id="kbNav"></div>
+                    <div class="nav-block" id="kbNum"></div>
+                </div>
+            </div>
+            <div class="legend">
+                <span><i style="background:#e8f5e9;"></i>已测</span>
+                <span><i style="background:#4a9eff;"></i>按下中</span>
+                <span><i style="background:#ffebee;"></i>手动标记坏键（点击切换）</span>
+                <span><i style="background:#fff8e1;"></i>疑似卡键（按下次数 &gt; 弹起次数）</span>
+                <span><i style="background:#fff;"></i>未测</span>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>按键事件流水</h3></div>
+            <div class="key-log" id="keyLog">在此页面按下任意按键开始测试…</div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        // ---------- 布局数据：[code, 标签, 宽度u]；G 为间隔 ----------
+        var G = ['__gap__', '', 0.5];
+        var UNIT = 44; // 1u = 44px
+        var MAIN_ROWS = [
+            [['Escape', 'Esc', 1.5], G, ['F1', 'F1'], ['F2', 'F2'], ['F3', 'F3'], ['F4', 'F4'], G,
+             ['F5', 'F5'], ['F6', 'F6'], ['F7', 'F7'], ['F8', 'F8'], G,
+             ['F9', 'F9'], ['F10', 'F10'], ['F11', 'F11'], ['F12', 'F12'], G,
+             ['PrintScreen', 'PrtSc'], ['ScrollLock', 'ScrLk'], ['Pause', 'Pause']],
+            [['Backquote', '` ~'], ['Digit1', '1 !'], ['Digit2', '2 @'], ['Digit3', '3 #'], ['Digit4', '4 $'],
+             ['Digit5', '5 %'], ['Digit6', '6 ^'], ['Digit7', '7 &'], ['Digit8', '8 *'], ['Digit9', '9 ('],
+             ['Digit0', '0 )'], ['Minus', '- _'], ['Equal', '= +'], ['Backspace', '⌫', 2]],
+            [['Tab', 'Tab', 1.5], ['KeyQ', 'Q'], ['KeyW', 'W'], ['KeyE', 'E'], ['KeyR', 'R'], ['KeyT', 'T'],
+             ['KeyY', 'Y'], ['KeyU', 'U'], ['KeyI', 'I'], ['KeyO', 'O'], ['KeyP', 'P'],
+             ['BracketLeft', '[ {'], ['BracketRight', '] }'], ['Backslash', '\\ |', 1.5]],
+            [['CapsLock', 'Caps', 1.75], ['KeyA', 'A'], ['KeyS', 'S'], ['KeyD', 'D'], ['KeyF', 'F'], ['KeyG', 'G'],
+             ['KeyH', 'H'], ['KeyJ', 'J'], ['KeyK', 'K'], ['KeyL', 'L'], ['Semicolon', '; :'],
+             ['Quote', "' \""], ['Enter', 'Enter', 2.25]],
+            [['ShiftLeft', 'Shift', 2.25], ['KeyZ', 'Z'], ['KeyX', 'X'], ['KeyC', 'C'], ['KeyV', 'V'], ['KeyB', 'B'],
+             ['KeyN', 'N'], ['KeyM', 'M'], ['Comma', ', <'], ['Period', '. >'], ['Slash', '/ ?'],
+             ['ShiftRight', 'Shift', 2.75]],
+            [['ControlLeft', 'Ctrl', 1.25], ['MetaLeft', 'Win', 1.25], ['AltLeft', 'Alt', 1.25],
+             ['Space', 'Space', 6.25], ['AltRight', 'Alt', 1.25], ['ContextMenu', 'Menu', 1.25],
+             ['ControlRight', 'Ctrl', 1.25]]
+        ];
+        var NAV_ROWS = [
+            [['Insert', 'Ins'], ['Home', 'Home'], ['PageUp', 'PgUp']],
+            [['Delete', 'Del'], ['End', 'End'], ['PageDown', 'PgDn']],
+            [G, ['ArrowUp', '↑'], G],
+            [['ArrowLeft', '←'], ['ArrowDown', '↓'], ['ArrowRight', '→']]
+        ];
+                var NUM_ROWS = [
+            [['NumLock', 'Num'], ['NumpadDivide', '/'], ['NumpadMultiply', '*'], ['NumpadSubtract', '-']],
+            [['Numpad7', '7'], ['Numpad8', '8'], ['Numpad9', '9'], ['NumpadAdd', '+']],
+            [['Numpad4', '4'], ['Numpad5', '5'], ['Numpad6', '6'], ['NumpadEnter', 'Ent']],
+            [['Numpad1', '1'], ['Numpad2', '2'], ['Numpad3', '3'], G],
+            [['Numpad0', '0', 2], ['NumpadDecimal', '.']]
+        ];
+
+        // ---------- 布局展平 ----------
+        function allKeys() {
+            var out = [];
+            function walk(rows) {
+                rows.forEach(function (row) {
+                    row.forEach(function (k) {
+                        if (k[0] !== '__gap__' && k[0] !== '') out.push({ code: k[0], label: k[1], w: k[2] || 1 });
+                    });
+                });
+            }
+            walk(MAIN_ROWS); walk(NAV_ROWS); walk(NUM_ROWS);
+            return out;
+        }
+        var KEYS = allKeys();
+        var BY_CODE = {};
+        KEYS.forEach(function (k) { BY_CODE[k.code] = k; });
+
+        // ---------- 状态 ----------
+        var kbd = null;
+        function freshState() {
+            return { tested: {}, faulty: {}, downs: {}, ups: {}, repeats: {}, combo: [], maxCombo: 0, log: [], sound: true };
+        }
+        function saveKbd() {
+            localStorage.setItem('kbd-state', JSON.stringify({
+                tested: kbd.tested, faulty: kbd.faulty, downs: kbd.downs, ups: kbd.ups,
+                maxCombo: kbd.maxCombo, sound: kbd.sound
+            }));
+        }
+        function loadKbd() {
+            kbd = freshState();
+            try {
+                var raw = localStorage.getItem('kbd-state');
+                if (raw) {
+                    var s = JSON.parse(raw);
+                    ['tested', 'faulty', 'downs', 'ups', 'repeats'].forEach(function (k) { if (s[k]) kbd[k] = s[k]; });
+                    if (s.maxCombo) kbd.maxCombo = s.maxCombo;
+                    if (s.sound === false) kbd.sound = false;
+                }
+            } catch (e) {}
+        }
+
+        // ---------- 核心逻辑 ----------
+        function pressKey(code, repeat) {
+            if (!BY_CODE[code]) return null;
+            if (repeat) { kbd.repeats[code] = (kbd.repeats[code] || 0) + 1; return { repeat: true }; }
+            kbd.downs[code] = (kbd.downs[code] || 0) + 1;
+            kbd.tested[code] = true;
+            if (kbd.combo.indexOf(code) < 0) {
+                kbd.combo.push(code);
+                if (kbd.combo.length > kbd.maxCombo) kbd.maxCombo = kbd.combo.length;
+            }
+            return { repeat: false };
+        }
+
+        function releaseKey(code) {
+            if (!BY_CODE[code]) return;
+            kbd.ups[code] = (kbd.ups[code] || 0) + 1;
+            var i = kbd.combo.indexOf(code);
+            if (i >= 0) kbd.combo.splice(i, 1);
+        }
+
+        function stuckList() {
+            var out = [];
+            KEYS.forEach(function (k) {
+                if ((kbd.downs[k.code] || 0) > (kbd.ups[k.code] || 0)) out.push(k.code);
+            });
+            return out;
+        }
+
+        function toggleFaulty(code) {
+            if (!BY_CODE[code]) return false;
+            if (kbd.faulty[code]) delete kbd.faulty[code];
+            else kbd.faulty[code] = true;
+            saveKbd();
+            return !!kbd.faulty[code];
+        }
+
+        function resetKbd() {
+            var sound = kbd.sound;
+            kbd = freshState();
+            kbd.sound = sound;
+            saveKbd();
+            renderAll();
+            showToast('已清空，重新开测');
+        }
+
+        function countObj(o) { var n = 0; for (var k in o) if (o[k]) n++; return n; }
+
+        function statsText() {
+            var stuck = stuckList();
+            return {
+                tested: countObj(kbd.tested),
+                total: KEYS.length,
+                combo: kbd.combo.length,
+                maxCombo: kbd.maxCombo,
+                stuck: stuck.length
+            };
+        }
+
+        function exportText() {
+            var s = statsText();
+            var untested = KEYS.filter(function (k) { return !kbd.tested[k.code]; }).map(function (k) { return k.code; });
+            var faulty = KEYS.filter(function (k) { return kbd.faulty[k.code]; }).map(function (k) { return k.code; });
+            var stuck = stuckList();
+            var lines = [
+                '【键盘体检报告】' + new Date().toLocaleString(),
+                '已测按键：' + s.tested + ' / ' + s.total,
+                '最大同按（无冲记录）：' + s.maxCombo + ' 键',
+                '当前按下：' + s.combo + ' 键'
+            ];
+            lines.push('未测按键（' + untested.length + '）：' + (untested.join(', ') || '无'));
+            lines.push('标记坏键（' + faulty.length + '）：' + (faulty.join(', ') || '无'));
+            lines.push('疑似卡键（' + stuck.length + '）：' + (stuck.join(', ') || '无'));
+            return lines.join('\n');
+        }
+
+        // ---------- 音效 ----------
+        var audioCtx = null;
+        function beep() {
+            if (!kbd.sound) return;
+            try {
+                if (typeof AudioContext === 'undefined') return;
+                audioCtx = audioCtx || new AudioContext();
+                var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+                o.type = 'square';
+                o.frequency.value = 700;
+                g.gain.value = 0.02;
+                o.connect(g); g.connect(audioCtx.destination);
+                o.start();
+                o.stop(audioCtx.currentTime + 0.03);
+            } catch (e) {}
+        }
+
+        function toggleSound() {
+            kbd.sound = !kbd.sound;
+            saveKbd();
+            $('soundBtn').textContent = '音效：' + (kbd.sound ? '开' : '关');
+            showToast(kbd.sound ? '音效已开' : '音效已关');
+        }
+
+        // ---------- 渲染 ----------
+        function keyHtml(k) {
+            if (k.code === '__gap__') {
+                return '<div class="k spacer" style="width:' + (k.w * UNIT) + 'px"></div>';
+            }
+            var label = k.label;
+            var parts = label.split(' ');
+            var main = parts[0], sub = parts[1] || '';
+            return '<div class="k" id="kk_' + k.code + '" data-code="' + k.code + '" style="width:' +
+                ((k.w || 1) * UNIT - 5) + 'px" title="' + k.code + '">' + main +
+                (sub ? '<small>' + sub + '</small>' : '') + '</div>';
+        }
+
+        function renderBoard() {
+            function rowsHtml(rows) {
+                return rows.map(function (row) {
+                    return '<div class="kb-row">' + row.map(function (k) {
+                        return keyHtml({ code: k[0], label: k[1], w: k[2] || 1 });
+                    }).join('') + '</div>';
+                }).join('');
+            }
+            $('kbMain').innerHTML = rowsHtml(MAIN_ROWS);
+            $('kbNav').innerHTML = rowsHtml(NAV_ROWS);
+            $('kbNum').innerHTML = rowsHtml(NUM_ROWS);
+        }
+
+        function refreshKeys() {
+            var stuck = {};
+            stuckList().forEach(function (c) { stuck[c] = true; });
+            KEYS.forEach(function (k) {
+                var el = $('kk_' + k.code);
+                if (!el) return;
+                var cls = 'k';
+                if (kbd.tested[k.code]) cls += ' kt';
+                if (kbd.combo.indexOf(k.code) >= 0) cls += ' ka';
+                if (kbd.faulty[k.code]) cls += ' kf';
+                if (stuck[k.code]) cls += ' ks';
+                el.className = cls;
+            });
+        }
+
+        function renderStats() {
+            var s = statsText();
+            var doneAll = s.tested === s.total;
+            $('statsBar').innerHTML =
+                '<span>已测 <b class="' + (doneAll ? 'ok' : '') + '">' + s.tested + '</b> / ' + s.total + '</span>' +
+                '<span>当前同按 <b>' + s.combo + '</b> 键</span>' +
+                '<span>最大同按（无冲）<b>' + s.maxCombo + '</b> 键</span>' +
+                '<span>疑似卡键 <b class="' + (s.stuck ? 'warn' : '') + '">' + s.stuck + '</b> 个</span>' +
+                (doneAll ? '<span class="ok">✔ 全键通过</span>' : '');
+            $('pressBadge').textContent = s.combo > 0 ? '按下中 ×' + s.combo : '';
+        }
+
+        function logEvent(type, code, key) {
+            kbd.log.unshift({ type: type, code: code, key: key, t: new Date() });
+            if (kbd.log.length > 8) kbd.log.pop();
+            $('keyLog').innerHTML = kbd.log.map(function (e) {
+                var cls = e.type === 'down' ? 'down' : e.type === 'up' ? 'up' : 'rep';
+                var tag = e.type === 'down' ? '↓' : e.type === 'up' ? '↑' : '↻';
+                return '<span class="' + cls + '">' + tag + ' ' + e.code +
+                    (e.key && e.key !== e.code ? '（' + e.key + '）' : '') +
+                    ' <span style="color:#bbb">' + e.t.toTimeString().slice(0, 8) + '</span></span>';
+            }).join('<br>');
+        }
+
+        function renderAll() {
+            refreshKeys();
+            renderStats();
+            $('soundBtn').textContent = '音效：' + (kbd.sound ? '开' : '关');
+        }
+
+        function copyReport() {
+            navigator.clipboard.writeText(exportText()).then(function () { showToast('报告已复制'); });
+        }
+
+        // ---------- 事件 ----------
+        function onKeyDown(e) {
+            var r = pressKey(e.code, e.repeat);
+            if (!r) return;
+            if (!r.repeat) {
+                beep();
+                logEvent('down', e.code, e.key);
+                saveKbd();
+                renderAll();
+            } else {
+                logEvent('repeat', e.code, e.key);
+            }
+            if (e.preventDefault) e.preventDefault();
+        }
+        function onKeyUp(e) {
+            releaseKey(e.code);
+            logEvent('up', e.code, e.key);
+            saveKbd();
+            renderAll();
+            if (e.preventDefault) e.preventDefault();
+        }
+        if (document.addEventListener) {
+            document.addEventListener('keydown', onKeyDown);
+            document.addEventListener('keyup', onKeyUp);
+        }
+
+        $('kbMain').addEventListener('click', onBoardClick);
+        $('kbNav').addEventListener('click', onBoardClick);
+        $('kbNum').addEventListener('click', onBoardClick);
+        function onBoardClick(e) {
+            var el = e.target;
+            while (el && el.className !== undefined && String(el.className).indexOf('k') !== 0 && el.parentNode) el = el.parentNode;
+            var code = el && el.dataset ? el.dataset.code : null;
+            if (!code) return;
+            var faulty = toggleFaulty(code);
+            refreshKeys();
+            showToast(code + (faulty ? ' 已标记为坏键' : ' 已取消坏键标记'));
+        }
+
+        loadKbd();
+        renderBoard();
+        renderAll();
+    </script>
+</body>
+</html>

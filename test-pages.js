@@ -830,6 +830,118 @@ function finish() {
         ctx.progressOf(50) > ctx.progressOf(10) && ctx.progressOf(100000) === 99);
 }
 
+// ---- float.html ----
+{
+    const { ctx, els, listeners } = loadPage('float/float.html');
+    // 数值解析
+    check('parseNum 基本', ctx.parseNum('42.25') === 42.25 && ctx.parseNum('-3e2') === -300 && ctx.parseNum('.5') === 0.5);
+    check('parseNum 特殊值', ctx.parseNum('Infinity') === Infinity && ctx.parseNum('-inf') === -Infinity && isNaN(ctx.parseNum('nan')));
+    let threw = false;
+    try { ctx.parseNum('abc'); } catch (e) { threw = true; }
+    try { ctx.parseNum(''); } catch (e) { threw = threw && true; }
+    check('parseNum 非法报错', threw);
+    // 拆解 0.1 (double)
+    const a = ctx.analyze('0.1', '64');
+    check('0.1 规约数拆解', a.type === 'normal' && a.signBit === '0');
+    check('0.1 指数位', a.expBits === '01111111011' && a.biasedExp === 1019);
+    check('0.1 位模式', a.hex === '3fb999999999999a');
+    // 分类
+    check('零的分类', ctx.analyze('0', '64').type === 'zero');
+    check('负零符号位', ctx.analyze('-0', '64').hex === '8000000000000000');
+    check('上溢为无穷', ctx.analyze('1e400', '64').type === 'inf');
+    check('负无穷符号', ctx.analyze('-Infinity', '64').signBit === '1' && ctx.analyze('-Infinity', '64').type === 'inf');
+    check('NaN 分类', ctx.analyze('NaN', '64').type === 'nan');
+    const sub = ctx.analyze('5e-324', '64');
+    check('最小次正规数', sub.type === 'subnormal' && sub.hex === '0000000000000001');
+    // f32
+    check('f32 标准向量', ctx.analyze('12.34', '32').hex === '414570a4');
+    check('f32 位模式解码', ctx.analyzeBits('40490fdb', '32').value === Math.fround(Math.PI));
+    // 位模式回环
+    ['0.1', '1.5', '-42.25', '1e-300', '1e300', '5e-324', '0', '-0'].forEach(v => {
+        const x = ctx.parseNum(v);
+        check('double 位模式回环 ' + v, Object.is(ctx.decodeHex(ctx.analyze(v, '64').hex, '64'), x));
+    });
+    // 位模式 ±1
+    check('neighborHex 进位', ctx.neighborHex('0000000f', 1) === '00000010');
+    check('neighborHex 借位', ctx.neighborHex('00000000', -1) === 'ffffffff');
+    // 相邻可表示数
+    const nb1 = ctx.neighbors(1, ctx.analyze('1', '64').hex);
+    check('1 的 ULP', nb1.next - 1 === Math.pow(2, -52) && 1 - nb1.prev === Math.pow(2, -53));
+    const nb0 = ctx.neighbors(0, ctx.analyze('0', '64').hex);
+    check('0 的邻居是最小次正规数', nb0.next === Number.MIN_VALUE && nb0.prev === -Number.MIN_VALUE);
+    check('无穷无邻居', ctx.neighbors(Infinity, '7ff0000000000000') === null);
+    const nb32 = ctx.neighbors(1, ctx.analyze('1', '32').hex);
+    check('f32 的 1 的 ULP', nb32.next === Math.fround(1 + Math.pow(2, -23)));
+    // 精确二进制展开
+    check('精确二进制整数', ctx.exactBinary(5) === '101' && ctx.exactBinary(-0.25) === '-0.01' && ctx.exactBinary(0.5) === '0.1');
+    const eb = ctx.exactBinary(0.1);
+    check('0.1 精确展开', eb.indexOf('.') === 1 && eb.includes('1100110011') && eb.endsWith('101') && !eb.endsWith('0'));
+    check('无穷无非数无展开', ctx.exactBinary(Infinity) === null && isNaN(ctx.exactBinary(NaN)) === false && ctx.exactBinary(NaN) === null);
+    // 翻车现场
+    const ps = ctx.pitfalls();
+    check('翻车现场条目', ps.length >= 5 && ps.some(p => p.title.includes('0.1 + 0.2')));
+    // UI 渲染
+    els['numInput'].value = '0.1';
+    els['fmtSel'].value = '64';
+    ctx.doParse();
+    check('float 位图渲染', els['bitBoard'].innerHTML.includes('data-idx="0"') && els['hexInput'].value === '3fb999999999999a');
+    check('float 解读渲染', els['typeTag'].innerHTML.includes('规约数') && els['infoGrid'].innerHTML.includes('0x3fb999999999999a'));
+    check('float 精确展开渲染', els['exactBin'].textContent.startsWith('0.000'));
+    check('float 邻居渲染', els['nbGrid'].innerHTML.includes('下一个可表示数'));
+    check('float 翻车现场渲染', els['pitfalls'].innerHTML.includes('0.1 + 0.2'));
+    // 点击比特翻转：0.1 指数末位 1→0，值减半
+    (listeners['bitBoard:click'] || []).forEach(fn => fn({ target: { dataset: { idx: '11' } } }));
+    check('点击比特翻转', els['numInput'].value === '0.05' && els['modeBadge'].textContent === '位模式模式')
+}
+// ---- kbd.html ----
+{
+    const { ctx, els } = loadPage('kbd/kbd.html');
+    ctx.resetKbd();
+    // 布局
+    const keys = ctx.allKeys();
+    const codes = keys.map(k => k.code);
+    check('键盘布局键数', keys.length >= 100);
+    check('键盘布局无重复', new Set(codes).size === codes.length);
+    check('键盘布局常用键齐全', ['Escape', 'KeyA', 'Digit0', 'F5', 'Space', 'Enter', 'NumpadEnter', 'ArrowUp', 'Backspace', 'ShiftLeft', 'ControlRight'].every(c => codes.includes(c)));
+    // 按下 / 弹起
+    ctx.pressKey('KeyA', false);
+    ctx.pressKey('KeyB', false);
+    check('按下点亮与同按计数', ctx.kbd.combo.length === 2 && ctx.kbd.maxCombo === 2 && ctx.kbd.tested['KeyA'] === true);
+    ctx.releaseKey('KeyA');
+    check('弹起移除同按', ctx.kbd.combo.length === 1 && ctx.kbd.combo[0] === 'KeyB');
+    // repeat 不重复计入同按
+    ctx.pressKey('KeyC', false);
+    const rep = ctx.pressKey('KeyC', true);
+    check('repeat 不增加同按', rep.repeat === true && ctx.kbd.combo.length === 2);
+    ctx.releaseKey('KeyC');
+    ctx.releaseKey('KeyB');
+    // 卡键检测：丢失一次 keyup
+    ctx.pressKey('Digit1', false);
+    ctx.pressKey('Digit1', false);
+    check('疑似卡键', ctx.stuckList().includes('Digit1'));
+    ctx.releaseKey('Digit1');
+    check('卡键未完全恢复', ctx.stuckList().includes('Digit1'));
+    ctx.releaseKey('Digit1');
+    check('卡键解除', ctx.stuckList().length === 0);
+    // 未知键忽略
+    check('未知键忽略', ctx.pressKey('Foo99', false) === null && ctx.releaseKey('Foo99') === undefined);
+    // 坏键标记
+    check('坏键标记切换', ctx.toggleFaulty('KeyQ') === true && ctx.kbd.faulty['KeyQ'] === true && ctx.toggleFaulty('KeyQ') === false);
+    // 统计与报告
+    const st = ctx.statsText();
+    check('统计信息', st.total === keys.length && st.tested === 4 && st.maxCombo === 2);
+    const rep2 = ctx.exportText();
+    check('体检报告内容', rep2.includes('最大同按') && rep2.includes('未测按键') && rep2.includes('已测按键') && rep2.includes('坏键'));
+    // UI 渲染
+    check('键盘三区渲染', els['kbMain'].innerHTML.includes('data-code="KeyA"') && els['kbNav'].innerHTML.includes('ArrowUp') && els['kbNum'].innerHTML.includes('NumpadEnter'));
+    check('统计栏渲染', els['statsBar'].innerHTML.includes('已测'));
+    ctx.pressKey('KeyD', false);
+    ctx.saveKbd();
+    const p2 = loadPage('kbd/kbd.html');
+    check('进度持久化', p2.ctx.kbd.tested['KeyD'] === true && p2.ctx.statsText().tested >= 1);
+    p2.ctx.resetKbd();
+    check('重置清空', p2.ctx.statsText().tested === 0 && p2.ctx.kbd.maxCombo === 0);
+}
 // ---- hash.html（异步块，最后收尾） ----
 (async () => {
     const nodeCrypto = require('crypto');

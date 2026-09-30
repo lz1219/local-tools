@@ -15,6 +15,7 @@
 | 时间戳转换 | [time/time.html](time/time.html) | 时间戳与日期互转，秒/毫秒自动识别 |
 | Cron 表达式解析器 | [cron/cron.html](cron/cron.html) | 5/6 位字段与宏解析，中文说明，未来 8 次运行时间推算 |
 | docker run ⇄ Compose 互转 | [docker-run/docker-run.html](docker-run/docker-run.html) | docker run 与 docker-compose.yml 双向互转，多服务批量，未知参数与字段警告 |
+| IEEE 754 浮点数解剖台 | [float/float.html](float/float.html) | 拆解符号位/指数位/尾数位，点击比特改写，精确二进制展开、相邻可表示数与 ULP、经典精度翻车现场 |
 
 **文本处理**
 
@@ -44,6 +45,12 @@
 | 工具 | 路径 | 说明 |
 |------|------|------|
 | 随机生成器 | [gen/gen.html](gen/gen.html) | UUID v4、随机密码（熵强度提示）、随机数字/端口 |
+
+**硬件体检**
+
+| 工具 | 路径 | 说明 |
+|------|------|------|
+| 键盘全键体检仪 | [kbd/kbd.html](kbd/kbd.html) | 104 键全布局渲染，逐键点亮、全键无冲同按计数、疑似卡键检测、坏键标记与体检报告 |
 
 **趣味乐园**
 

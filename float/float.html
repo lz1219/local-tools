@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IEEE 754 浮点数解剖台</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .input-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .num-input {
+            flex: 1; min-width: 200px; padding: 9px 12px; border: 1px solid #dde1e6; border-radius: 6px;
+            background: #fafbfc; color: #333;
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 15px;
+        }
+        .num-input:focus { outline: none; border-color: #4a9eff; box-shadow: 0 0 0 2px rgba(74,158,255,0.15); }
+        .bit-board {
+            font-family: 'Consolas', 'Courier New', monospace;
+            display: flex; flex-wrap: wrap; gap: 2px; align-items: flex-start;
+            user-select: none; margin: 10px 0 6px;
+        }
+        .kbit {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 22px; height: 28px; border-radius: 4px; cursor: pointer;
+            font-size: 13px; background: #f0f2f5; color: #555; border: 1px solid #e2e5e9;
+            transition: background 0.1s;
+        }
+        .kbit:hover { border-color: #4a9eff; }
+        .kbit.sign { background: #fff3e0; border-color: #ffcc80; color: #e65100; }
+        .kbit.exp { background: #e3f2fd; border-color: #90caf9; color: #1565c0; }
+        .kbit.frac { background: #e8f5e9; border-color: #a5d6a7; color: #2e7d32; }
+        .kbit.one { font-weight: 700; box-shadow: inset 0 -3px 0 currentColor; }
+        .bit-legend { display: flex; gap: 16px; font-size: 12px; color: #888; flex-wrap: wrap; }
+        .bit-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
+        .hex-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+        .hex-row input {
+            flex: 1; min-width: 220px; padding: 7px 12px; border: 1px solid #dde1e6; border-radius: 6px;
+            background: #fafbfc; color: #333; font-family: 'Consolas', monospace; font-size: 14px;
+        }
+        .hex-row input:focus { outline: none; border-color: #4a9eff; }
+        .explain-formula {
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 16px; color: #2c3e50;
+            background: #f0f4f8; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;
+            word-break: break-all; line-height: 1.8;
+        }
+        .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+        .info-item { background: #fafbfc; border: 1px solid #dde1e6; border-radius: 8px; padding: 10px 14px; }
+        .info-item .label { font-size: 12px; color: #999; margin-bottom: 4px; }
+        .info-item .value {
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 14px;
+            color: #2c3e50; font-weight: 600; word-break: break-all;
+        }
+        .type-tag { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+        .type-normal { background: #e8f5e9; color: #2e7d32; }
+        .type-subnormal { background: #fff3e0; color: #ef6c00; }
+        .type-zero { background: #eceff1; color: #546e7a; }
+        .type-inf { background: #ffebee; color: #c62828; }
+        .type-nan { background: #f3e8fd; color: #7b1fa2; }
+        .exact-bin {
+            font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; color: #2c3e50;
+            background: #f7f9fb; border: 1px solid #e2e5e9; border-radius: 8px;
+            padding: 12px 16px; word-break: break-all; line-height: 1.8; max-height: 160px; overflow: auto;
+        }
+        .nb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+        .nb-item { background: #fafbfc; border: 1px solid #dde1e6; border-radius: 8px; padding: 10px 14px; cursor: pointer; }
+        .nb-item:hover { border-color: #4a9eff; }
+        .nb-item .label { font-size: 12px; color: #999; margin-bottom: 4px; }
+        .nb-item .value { font-family: 'Consolas', monospace; font-size: 14px; font-weight: 600; color: #2c3e50; word-break: break-all; }
+        .nb-item .sub { font-size: 11px; color: #aaa; margin-top: 3px; font-family: 'Consolas', monospace; }
+        .pitfall {
+            border: 1px solid #e2e5e9; border-radius: 8px; margin-bottom: 10px; overflow: hidden;
+        }
+        .pitfall-head {
+            display: flex; justify-content: space-between; align-items: center; gap: 10px;
+            padding: 10px 16px; background: #fafbfc; cursor: pointer;
+        }
+        .pitfall-head .pt { font-size: 14px; font-weight: 600; color: #2c3e50; }
+        .pitfall-head .arrow { color: #aaa; font-size: 12px; transition: transform 0.15s; }
+        .pitfall.open .pitfall-head .arrow { transform: rotate(90deg); }
+        .pitfall-body { display: none; padding: 12px 16px; border-top: 1px solid #eef1f4; }
+        .pitfall.open .pitfall-body { display: block; }
+        .pitfall-body pre {
+            font-family: 'Consolas', monospace; font-size: 12.5px; color: #455a64;
+            background: #f7f9fb; border-radius: 6px; padding: 10px 12px; overflow: auto;
+            line-height: 1.7; margin-bottom: 8px; white-space: pre-wrap; word-break: break-all;
+        }
+        .f32-note {
+            margin-top: 10px; padding: 8px 14px; background: #fff8e1; border-left: 3px solid #ffb300;
+            border-radius: 4px; font-size: 12.5px; color: #8d6e00;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>IEEE 754 浮点数解剖台</h1>
+        <p class="subtitle">输入数字，拆开它的符号位、指数位、尾数位 —— 点击任意比特直接改写</p>
+
+        <div class="panel">
+            <div class="panel-header"><h3>输入</h3><span class="badge badge-info" id="modeBadge">数值模式</span></div>
+            <div class="input-row">
+                <input type="text" class="num-input" id="numInput" placeholder="输入数字，如 0.1、42、-3.14e10、Infinity、NaN" value="0.1">
+                <select class="indent-select" id="fmtSel">
+                    <option value="32">float · 32 位</option>
+                    <option value="64" selected>double · 64 位</option>
+                </select>
+                <button class="btn-primary btn-sm" onclick="doParse()">解剖</button>
+                <button class="btn-outline btn-sm" onclick="randomExample()">随机示例</button>
+            </div>
+            <div class="info-text">支持十进制 / 科学计数法 / Infinity / -Infinity / NaN · 回车直接解剖</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>位图 · 点击比特翻转改写</h3><span class="badge badge-info" id="bitBadge"></span></div>
+            <div class="bit-board" id="bitBoard"></div>
+            <div class="bit-legend">
+                <span><i style="background:#ffcc80;"></i>符号位 s（1 位）</span>
+                <span><i style="background:#90caf9;"></i>指数位 e（偏置移码）</span>
+                <span><i style="background:#a5d6a7;"></i>尾数位 f（原码小数）</span>
+            </div>
+            <div class="hex-row">
+                <input type="text" id="hexInput" placeholder="或直接粘贴十六进制位模式，如 40490fdb">
+                <button class="btn-outline btn-sm" onclick="applyHex()">按位模式解析</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>解读</h3><span id="typeTag"></span></div>
+            <div class="explain-formula" id="formula"></div>
+            <div class="info-grid" id="infoGrid"></div>
+            <div id="f32Note"></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>精确二进制展开</h3>
+                <button class="btn-success btn-sm" onclick="copyExact()">复制</button>
+            </div>
+            <div class="exact-bin" id="exactBin"></div>
+            <div class="info-text">浮点数存不下 0.1 这样的十进制小数，它存的是下面这个精确的有限二进制小数</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>相邻可表示数 · 这个数在数轴上的邻居</h3></div>
+            <div class="nb-grid" id="nbGrid"></div>
+            <div class="info-text">浮点数是稀疏的：相邻两个可表示数之间的间隙（ULP）随数值变大而变大 · 点击邻居可跳转解剖</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h3>经典翻车现场</h3></div>
+            <div id="pitfalls"></div>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        // ---------- 格式定义 ----------
+        var FMT = {
+            '32': { expBits: 8, fracBits: 23, bias: 127 },
+            '64': { expBits: 11, fracBits: 52, bias: 1023 }
+        };
+        var TYPE_NAME = {
+            normal: '规约数', subnormal: '次正规数', zero: '零',
+            inf: '无穷', nan: '非数（NaN）'
+        };
+
+        // ---------- 基础工具 ----------
+        function u32hex(n) { return ('00000000' + n.toString(16)).slice(-8); }
+
+        function hexToBin(hex) {
+            var out = '';
+            for (var i = 0; i < hex.length; i++) {
+                out += ('000' + parseInt(hex[i], 16).toString(2)).slice(-4);
+            }
+            return out;
+        }
+
+        function parseNum(str) {
+            var s = String(str).trim();
+            if (!s) throw new Error('empty');
+            var lower = s.toLowerCase();
+            if (lower === 'inf' || lower === '+inf' || lower === 'infinity' || lower === '+infinity') return Infinity;
+            if (lower === '-inf' || lower === '-infinity') return -Infinity;
+            if (lower === 'nan' || lower === '+nan' || lower === '-nan') return NaN;
+            if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) throw new Error('invalid number: ' + s);
+            var n = Number(s);
+            if (isNaN(n)) throw new Error('invalid number: ' + s);
+            return n;
+        }
+
+        function numToHex(x, fmtKey) {
+            var dv = new DataView(new ArrayBuffer(8));
+            if (fmtKey === '32') { dv.setFloat32(0, x); return u32hex(dv.getUint32(0)); }
+            dv.setFloat64(0, x);
+            return u32hex(dv.getUint32(0)) + u32hex(dv.getUint32(4));
+        }
+
+        function decodeHex(hex, fmtKey) {
+            var dv = new DataView(new ArrayBuffer(8));
+            var h = ('0000000000000000' + hex.toLowerCase()).slice(-16);
+            if (fmtKey === '32') {
+                dv.setUint32(0, parseInt(h.slice(-8), 16));
+                return dv.getFloat32(0);
+            }
+            dv.setUint32(0, parseInt(h.slice(0, 8), 16));
+            dv.setUint32(4, parseInt(h.slice(8, 16), 16));
+            return dv.getFloat64(0);
+        }
+
+        // ---------- 核心：由位模式拆解 ----------
+        function analyzeBits(hex, fmtKey) {
+            var f = FMT[fmtKey];
+            hex = ('0000000000000000' + String(hex).toLowerCase()).slice(-(fmtKey === '32' ? 8 : 16));
+            if (!/^[0-9a-f]+$/.test(hex)) throw new Error('invalid hex: ' + hex);
+            var bits = hexToBin(hex);
+            var signBit = bits.charAt(0);
+            var expBits = bits.slice(1, 1 + f.expBits);
+            var fracBits = bits.slice(1 + f.expBits);
+            var biasedExp = parseInt(expBits, 2);
+            var fracVal = parseInt(fracBits, 2);
+            var expAll1 = biasedExp === Math.pow(2, f.expBits) - 1;
+            var expAll0 = biasedExp === 0;
+            var type;
+            if (expAll1) type = fracVal === 0 ? 'inf' : 'nan';
+            else if (expAll0) type = fracVal === 0 ? 'zero' : 'subnormal';
+            else type = 'normal';
+            var value = decodeHex(hex, fmtKey);
+            // double 模式下附带 float32 舍入信息
+            var f32hex = null, f32diff = false;
+            if (fmtKey === '64') {
+                f32hex = numToHex(value, '32');
+                if (!isNaN(value)) f32diff = !Object.is(decodeHex(f32hex, '32'), value);
+            }
+            return {
+                hex: hex, bits: bits, fmt: fmtKey, value: value, type: type,
+                signBit: signBit, expBits: expBits, fracBits: fracBits,
+                biasedExp: biasedExp, fracVal: fracVal, f32hex: f32hex, f32diff: f32diff
+            };
+        }
+
+        function analyze(str, fmtKey) {
+            return analyzeBits(numToHex(parseNum(str), fmtKey), fmtKey);
+        }
+
+        // ---------- 位模式 +n（IEEE 编码顺序上的相邻模式） ----------
+        function neighborHex(hex, delta) {
+            var arr = String(hex).toLowerCase().split('');
+            var i = arr.length - 1, carry = delta;
+            while (i >= 0 && carry !== 0) {
+                var v = parseInt(arr[i], 16) + carry;
+                if (v < 0) { arr[i] = 'f'; carry = -1; }
+                else if (v > 15) { arr[i] = '0'; carry = 1; }
+                else { arr[i] = v.toString(16); carry = 0; }
+                i--;
+            }
+            return arr.join('');
+        }
+
+        // ---------- 数值上的相邻可表示数 ----------
+        function neighbors(x, hex) {
+            if (isNaN(x) || !isFinite(x)) return null;
+            var fmtKey = hex.length === 8 ? '32' : '64';
+            var minSub = decodeHex(fmtKey === '32' ? '00000001' : '0000000000000001', fmtKey);
+            if (x === 0) {
+                return {
+                    prev: -minSub, next: minSub,
+                    ulpPrev: minSub, ulpNext: minSub,
+                    note: '+0 与 -0 之间夹着最小次正规数 ' + String(minSub)
+                };
+            }
+            var prevHex, nextHex;
+            if (x > 0) { prevHex = neighborHex(hex, -1); nextHex = neighborHex(hex, 1); }
+            else { prevHex = neighborHex(hex, 1); nextHex = neighborHex(hex, -1); }
+            var prev = decodeHex(prevHex, fmtKey), next = decodeHex(nextHex, fmtKey);
+            return { prev: prev, next: next, ulpPrev: x - prev, ulpNext: next - x };
+        }
+
+        // ---------- 精确二进制展开 ----------
+        function repeatStr(ch, n) { return new Array(n + 1).join(ch); }
+
+        function exactBinary(x) {
+            if (x === 0) return '0';
+            if (isNaN(x) || !isFinite(x)) return null;
+            var dv = new DataView(new ArrayBuffer(8));
+            dv.setFloat64(0, x);
+            var hi = dv.getUint32(0), lo = dv.getUint32(4);
+            var sign = hi >>> 31;
+            var exp = (hi >>> 20) & 0x7ff;
+            var M = (hi & 0xfffff) * Math.pow(2, 32) + lo;
+            var E;
+            if (exp === 0) { E = -1074; }
+            else { M += Math.pow(2, 52); E = exp - 1075; }
+            var digits = M.toString(2);
+            var out;
+            if (E >= 0) out = digits + repeatStr('0', E);
+            else if (-E >= digits.length) out = '0.' + repeatStr('0', -E - digits.length) + digits;
+            else out = digits.slice(0, digits.length + E) + '.' + digits.slice(digits.length + E);
+            if (out.indexOf('.') >= 0) out = out.replace(/0+$/, '').replace(/\.$/, '');
+            return (sign ? '-' : '') + out;
+        }
+
+        // ---------- 经典翻车现场 ----------
+        function pitfalls() {
+            var hex = function (v) { return '0x' + numToHex(v, '64'); };
+            var sum = 0.1 + 0.2;
+            var err = sum - 0.3;
+            return [
+                {
+                    title: '0.1 + 0.2 !== 0.3',
+                    body:
+                        '0.1      → ' + hex(0.1) + '\n' +
+                        '0.2      → ' + hex(0.2) + '\n' +
+                        '0.1+0.2  → ' + hex(sum) + '\n' +
+                        '0.3      → ' + hex(0.3) + '\n' +
+                        '误差     → ' + String(err) + ' = ' + exactBinary(err),
+                    demo: { label: '解剖 0.1', value: '0.1' }
+                },
+                {
+                    title: '2^53 之后的整数开始"四舍五入"',
+                    body:
+                        '9007199254740992 + 1 === 9007199254740992 → ' + (9007199254740992 + 1 === 9007199254740992) + '\n' +
+                        '9007199254740993 → ' + hex(9007199254740993) + '（丢了 +1）\n' +
+                        'Number.MAX_SAFE_INTEGER = ' + String(Math.pow(2, 53) - 1),
+                    demo: { label: '解剖 2^53+1', value: '9007199254740993' }
+                },
+                {
+                    title: 'float32 装不下 2^24 + 1',
+                    body:
+                        '16777217 以 float32 存储 → ' + String(decodeHex(numToHex(16777217, '32'), '32')) + '（' + numToHex(16777217, '32') + '）\n' +
+                        '24 位尾数最多精确表示 2^24 = 16777216 以内的整数',
+                    demo: { label: '解剖 16777217（float）', value: '16777217', fmt: '32' }
+                },
+                {
+                    title: '最小正次正规数 5e-324，比它小就下溢成 0',
+                    body:
+                        '5e-324 → ' + hex(Number.MIN_VALUE) + '\n' +
+                        '2.5e-324 → ' + hex(2.5e-324) + ' = 0\n' +
+                        '次正规数：指数位全 0、隐含位从 1 变成 0，用来平滑下溢',
+                    demo: { label: '解剖 5e-324', value: '5e-324' }
+                },
+                {
+                    title: '-0 和 +0 是两个不同的数',
+                    body:
+                        '-0 === +0 → ' + (-0 === 0) + '\n' +
+                        '1 / -0 = ' + String(1 / -0) + '，1 / +0 = ' + String(1 / 0) + '\n' +
+                        '+0 → ' + hex(0) + '\n' +
+                        '-0 → ' + hex(-0),
+                    demo: { label: '解剖 -0', value: '-0' }
+                },
+                {
+                    title: 'Infinity 与 NaN',
+                    body:
+                        '1e400 → ' + hex(1e400) + '（上溢为 +Infinity）\n' +
+                        '0 / 0 → NaN，NaN !== NaN → ' + (NaN !== NaN) + '\n' +
+                        'Infinity → ' + hex(Infinity) + '，-Infinity → ' + hex(-Infinity),
+                    demo: { label: '解剖 Infinity', value: 'Infinity' }
+                }
+            ];
+        }
+
+        // ---------- 渲染 ----------
+        var cur = null;
+        var bitEdited = false;
+
+        function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+
+        function renderBits(a) {
+            var f = FMT[a.fmt];
+            var html = '';
+            for (var i = 0; i < a.bits.length; i++) {
+                var cls = 'kbit';
+                if (i === 0) cls += ' sign';
+                else if (i <= f.expBits) cls += ' exp';
+                else cls += ' frac';
+                if (a.bits.charAt(i) === '1') cls += ' one';
+                html += '<span class="' + cls + '" data-idx="' + i + '" title="第 ' + i + ' 位">' + a.bits.charAt(i) + '</span>';
+            }
+            $('bitBoard').innerHTML = html;
+            $('hexInput').value = a.hex;
+            $('bitBadge').textContent = '0x' + a.hex + ' · ' + a.bits.length + ' 位';
+        }
+
+        function renderExplain(a) {
+            var f = FMT[a.fmt];
+            var formula;
+            if (a.type === 'normal') {
+                formula = '(-1)^' + a.signBit + ' × 1.' + a.fracBits + ' × 2^(' + a.biasedExp + ' - ' + f.bias + ')';
+            } else if (a.type === 'subnormal') {
+                formula = '(-1)^' + a.signBit + ' × 0.' + a.fracBits + ' × 2^(1 - ' + f.bias + ')';
+            } else if (a.type === 'zero') {
+                formula = '指数位与尾数位全 0 → 有符号零（' + (a.signBit === '1' ? '-' : '+') + '0）';
+            } else if (a.type === 'inf') {
+                formula = '指数位全 1、尾数位全 0 → ' + (a.signBit === '1' ? '-Infinity' : '+Infinity');
+            } else {
+                formula = '指数位全 1、尾数位非 0 → NaN' + (a.fracVal !== 0 ? '（携带尾数载荷 0x' + a.fracVal.toString(16) + '）' : '');
+            }
+            $('formula').textContent = formula;
+
+            var tagCls = { normal: 'type-normal', subnormal: 'type-subnormal', zero: 'type-zero', inf: 'type-inf', nan: 'type-nan' }[a.type];
+            $('typeTag').innerHTML = '<span class="type-tag ' + tagCls + '">' + TYPE_NAME[a.type] + '</span>';
+
+            function item(label, value) {
+                return '<div class="info-item"><div class="label">' + label + '</div><div class="value">' + value + '</div></div>';
+            }
+            var items =
+                item('十进制值', esc(String(a.value))) +
+                item('十六进制', '0x' + a.hex) +
+                item('符号位 s', a.signBit + '（' + (a.signBit === '1' ? '负' : '正') + '）');
+            if (a.type === 'normal' || a.type === 'subnormal') {
+                items += item('指数（偏置移码）', String(a.biasedExp) + (a.type === 'normal' ? ' → 实际 2 的指数 ' + String(a.biasedExp - f.bias) : '（全 0）'));
+                items += item('尾数（原码小数）', '0.' + a.fracBits + '₂ = ' + a.fracVal);
+            } else if (a.type === 'nan') {
+                items += item('尾数载荷', '0x' + a.fracVal.toString(16));
+            }
+            items += item('偏置常量 bias', String(f.bias) + ' = 2^' + (f.expBits - 1) + ' - 1');
+            $('infoGrid').innerHTML = items;
+
+            if (a.f32diff) {
+                $('f32Note').innerHTML = '<div class="f32-note">⚠ 该值无法用 float32 精确表示，舍入后为 <b>' +
+                    esc(String(decodeHex(a.f32hex, '32'))) + '</b>（0x' + a.f32hex + '）</div>';
+            } else {
+                $('f32Note').innerHTML = '';
+            }
+        }
+
+        function renderExact(a) {
+            var bin = a.fmt === '64' ? exactBinary(a.value) : exactBinary(decodeHex(a.hex, '32'));
+            $('exactBin').textContent = bin === null ? '（无穷与非数没有二进制展开）' : bin;
+        }
+
+        function nbItem(label, value, sub, demo) {
+            return '<div class="nb-item" onclick="jumpNeighbor(this)" data-v="' + esc(demo) + '">' +
+                '<div class="label">' + label + '</div>' +
+                '<div class="value">' + esc(value) + '</div>' +
+                (sub ? '<div class="sub">' + esc(sub) + '</div>' : '') + '</div>';
+        }
+
+        function renderNeighbors(a) {
+            var nb = neighbors(a.value, a.hex);
+            if (!nb) {
+                $('nbGrid').innerHTML = '<div class="info-text">无穷与非数没有相邻可表示数</div>';
+                return;
+            }
+            var hex = function (v) { return '0x' + numToHex(v, a.fmt); };
+            $('nbGrid').innerHTML =
+                nbItem('上一个可表示数', String(nb.prev), hex(nb.prev), String(nb.prev)) +
+                nbItem('当前值', String(a.value), hex(a.value), String(a.value)) +
+                nbItem('下一个可表示数', String(nb.next), hex(nb.next), String(nb.next)) +
+                nbItem('间隙（ULP）', '← ' + String(nb.ulpPrev) + ' · ' + String(nb.ulpNext) + ' →', '', String(a.value));
+            if (nb.note) $('nbGrid').innerHTML += '<div class="info-text" style="grid-column:1/-1;">' + esc(nb.note) + '</div>';
+        }
+
+        function renderPitfalls() {
+            var html = '';
+            pitfalls().forEach(function (p, i) {
+                html += '<div class="pitfall' + (i === 0 ? ' open' : '') + '" data-i="' + i + '">' +
+                    '<div class="pitfall-head" onclick="togglePitfall(this)">' +
+                    '<span class="pt">' + esc(p.title) + '</span>' +
+                    '<span><button class="btn-outline btn-sm" onclick="event.stopPropagation();pitfallDemo(' + i + ')">' + esc(p.demo.label) + '</button> ' +
+                    '<span class="arrow">▶</span></span></div>' +
+                    '<div class="pitfall-body"><pre>' + esc(p.body) + '</pre></div></div>';
+            });
+            $('pitfalls').innerHTML = html;
+        }
+
+        function togglePitfall(head) {
+            head.parentNode.classList.toggle('open');
+        }
+
+        function pitfallDemo(i) {
+            var p = pitfalls()[i];
+            $('numInput').value = p.demo.value;
+            if (p.demo.fmt) $('fmtSel').value = p.demo.fmt;
+            bitEdited = false;
+            doParse();
+        }
+
+        function renderAll(a) {
+            cur = a;
+            renderBits(a);
+            renderExplain(a);
+            renderExact(a);
+            renderNeighbors(a);
+            $('modeBadge').textContent = bitEdited ? '位模式模式' : '数值模式';
+        }
+
+        // ---------- 交互 ----------
+        function doParse() {
+            var raw = $('numInput').value;
+            var fmtKey = $('fmtSel').value || '64';
+            try {
+                renderAll(analyze(raw, fmtKey));
+                bitEdited = false;
+            } catch (e) {
+                showToast('无法解析：' + e.message);
+            }
+        }
+
+        function applyHex() {
+            var hex = $('hexInput').value.trim().replace(/^0x/i, '');
+            var fmtKey = $('fmtSel').value || '64';
+            var wantLen = fmtKey === '32' ? 8 : 16;
+            if (!/^[0-9a-fA-F]+$/.test(hex)) { showToast('请输入十六进制位模式'); return; }
+            if (hex.length > wantLen) { showToast('位模式长度超过 ' + wantLen + ' 位十六进制'); return; }
+            try {
+                var a = analyzeBits(hex, fmtKey);
+                bitEdited = true;
+                $('numInput').value = isNaN(a.value) ? 'NaN' : String(a.value);
+                renderAll(a);
+            } catch (e) {
+                showToast('位模式无效：' + e.message);
+            }
+        }
+
+        function randomExample() {
+            var pool = ['0.1', '0.2', '0.3', '1.5', '-42.25', '3.141592653589793', '1e-10', '1e10',
+                '2.2250738585072014e-308', '5e-324', '1.7976931348623157e308', '0.000001',
+                '123456789', '-0', '0.5', '0.3333333333333333'];
+            var v = pool[Math.floor(Math.random() * pool.length)];
+            $('numInput').value = v;
+            if (v === '5e-324' || v === '1.7976931348623157e308') $('fmtSel').value = '64';
+            bitEdited = false;
+            doParse();
+        }
+
+        function copyExact() {
+            navigator.clipboard.writeText($('exactBin').textContent).then(function () { showToast('已复制'); });
+        }
+
+        function jumpNeighbor(el) {
+            $('numInput').value = el.dataset.v;
+            bitEdited = false;
+            doParse();
+        }
+
+        $('bitBoard').addEventListener('click', function (e) {
+            var idx = e.target && e.target.dataset ? e.target.dataset.idx : null;
+            if (idx === null || idx === undefined || !cur) return;
+            var i = Number(idx);
+            var ch = cur.bits.charAt(i) === '1' ? '0' : '1';
+            var bits = cur.bits.slice(0, i) + ch + cur.bits.slice(i + 1);
+            var a;
+            try {
+                a = analyzeBits(binToHex(bits), cur.fmt);
+            } catch (err) { return; }
+            bitEdited = true;
+            $('numInput').value = isNaN(a.value) ? 'NaN' : String(a.value);
+            renderAll(a);
+        });
+
+        function binToHex(bits) {
+            var out = '';
+            for (var i = 0; i < bits.length; i += 4) {
+                out += parseInt(bits.slice(i, i + 4), 2).toString(16);
+            }
+            return out;
+        }
+
+        $('numInput').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') { bitEdited = false; doParse(); }
+        });
+        $('numInput').addEventListener('input', function () { bitEdited = false; });
+        $('hexInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') applyHex(); });
+
+        renderPitfalls();
+        doParse();
+    </script>
+</body>
+</html>
