@@ -5,6 +5,8 @@ const vm = require('vm');
 
 const ROOT = __dirname;
 const commonJs = fs.readFileSync(path.join(ROOT, 'assets/common.js'), 'utf8');
+const poemsJs = fs.readFileSync(path.join(ROOT, 'assets/poems.js'), 'utf8');
+const POEM_DB = new Function(poemsJs + '; return POEM_DB;')();
 
 // 跨页面共享的内存 localStorage，用于持久化测试
 const memStore = {};
@@ -26,6 +28,7 @@ function loadPage(rel, extra, preJs) {
             style: {}, checked: false, dataset: {}, offsetWidth: 100,
             classList: { add() {}, remove() {}, toggle() {} },
             appendChild() {}, remove() {},
+            insertAdjacentHTML(pos, html) { this.innerHTML += html; },
             getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }),
             addEventListener(type, fn) { (listeners[id + ':' + type] = listeners[id + ':' + type] || []).push(fn); }
         };
@@ -42,6 +45,7 @@ function loadPage(rel, extra, preJs) {
         document: {
             getElementById(id) { return els[id] || (els[id] = makeEl(id)); },
             createElement() { return makeEl('dyn'); },
+            querySelector() { return makeEl('qs'); },
             activeElement: null,
             // 仅 hash.html 使用：默认勾选与页面一致的 md5 + SHA-256
             querySelectorAll(sel) {
@@ -942,6 +946,162 @@ function finish() {
     p2.ctx.resetKbd();
     check('重置清空', p2.ctx.statsText().tested === 0 && p2.ctx.kbd.maxCombo === 0);
 }
+// ---- mock.html ----
+{
+    const nodeCrypto = require('crypto');
+    const { ctx, els } = loadPage('mock/mock.html', { crypto: nodeCrypto.webcrypto });
+    check('姓名格式', /^[一-龥]{2,3}$/.test(ctx.genName()));
+    const phone = ctx.genPhone();
+    check('手机号格式', /^1\d{10}$/.test(phone) && ctx.PHONE_PREFIX.includes(phone.slice(0, 3)));
+    let idOk = true;
+    for (let i = 0; i < 100; i++) { if (!ctx.idValid(ctx.genIdCard())) idOk = false; }
+    check('身份证校验位回环 x100', idOk);
+    check('身份证出生日期合法', /^\d{6}(19|20)\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])\d{3}[\dX]$/.test(ctx.genIdCard()));
+    let luOk = true;
+    for (let i = 0; i < 100; i++) { const c = ctx.genBankCard(); if (!ctx.luhnValid(c) || c.length !== 19) luOk = false; }
+    check('银行卡 Luhn 回环 x100', luOk);
+    const card = ctx.genBankCard();
+    const badCard = card.slice(0, -1) + String((+card.slice(-1) + 1) % 10);
+    check('luhn 拒绝篡改卡号', !ctx.luhnValid(badCard));
+    check('邮箱格式', /^[a-z0-9]+@[a-z0-9]+\.com$/.test(ctx.genEmail()));
+    // 单项生成 UI
+    els['nameCount'] = { value: '3' };
+    ctx.genOne('name');
+    check('单项生成渲染', els['nameOut'].textContent.split('\n').length === 3);
+    // 整行数据三种格式
+    els['batchCount'] = { value: '5' };
+    els['batchFormat'] = { value: 'csv' };
+    ctx.genBatch();
+    const csvLines = els['batchOut'].textContent.split('\n');
+    check('CSV 行数与表头', csvLines.length === 6 && csvLines[0] === 'name,phone,id_card,bank_card,email');
+    check('CSV 字段数', csvLines[1].split(',').length === 5);
+    els['batchFormat'] = { value: 'json' };
+    ctx.genBatch();
+    check('JSON 格式', JSON.parse(els['batchOut'].textContent).length === 5);
+    els['batchFormat'] = { value: 'sql' };
+    ctx.genBatch();
+    check('SQL 格式', els['batchOut'].textContent.startsWith('INSERT INTO mock_data') && els['batchOut'].textContent.endsWith(';'));
+    // 统一社会信用代码（GB 32100-2015）
+    check('信用代码真实样本-百度', ctx.creditValid('91110000802100433B'));
+    check('信用代码真实样本-阿里', ctx.creditValid('91330100799655058B'));
+    let crOk = true;
+    for (let i = 0; i < 100; i++) { if (!ctx.creditValid(ctx.genCreditCode())) crOk = false; }
+    check('信用代码校验位回环 x100', crOk);
+    const cc = ctx.genCreditCode();
+    check('信用代码字符集', /^[0-9A-HJ-NPQRTUWXY]{18}$/.test(cc));
+    const badCc = cc.slice(0, 17) + (cc[17] === 'Y' ? 'X' : 'Y');
+    check('信用代码拒绝篡改', !ctx.creditValid(badCc));
+    // 企业行数据
+    check('企业名称格式', /(有限公司|股份有限公司)$/.test(ctx.genCompanyName()));
+    els['batchType'] = { value: 'company' };
+    els['batchFormat'] = { value: 'csv' };
+    ctx.genBatch();
+    const cLines = els['batchOut'].textContent.split('\n');
+    check('企业 CSV 表头', cLines[0] === 'company,credit_code,legal_person,capital_wan,founded,phone');
+    check('企业 CSV 字段数', cLines[1].split(',').length === 6);
+    check('企业行信用代码合法', ctx.creditValid(cLines[1].split(',')[1]));
+    els['batchFormat'] = { value: 'json' };
+    ctx.genBatch();
+    check('企业 JSON 含信用代码', JSON.parse(els['batchOut'].textContent)[0]['统一社会信用代码'].length === 18);
+    // 复制守卫
+    const p2 = loadPage('mock/mock.html', { crypto: nodeCrypto.webcrypto });
+    p2.ctx.copyBox('nameOut');
+    check('空内容复制守卫', p2.els['toast'].textContent === '没有可复制的内容');
+}
+// ---- 诗库数据完整性 ----
+{
+    check('诗库总数 >= 600', POEM_DB.length >= 600);
+    check('诗库字段完整', POEM_DB.every(p => p.t && p.a && (p.d === '唐' || p.d === '宋') && p.c));
+    const key = p => p.a + '|' + p.c.slice(0, 20);
+    check('诗库无重复', new Set(POEM_DB.map(key)).size === POEM_DB.length);
+    check('收录静夜思', POEM_DB.some(p => p.t === '静夜思' && p.a === '李白' && p.c.includes('疑是地上霜')));
+    check('收录水调歌头', POEM_DB.some(p => p.t === '水调歌头' && p.a === '苏轼' && p.c.includes('明月几时有')));
+    check('收录将进酒', POEM_DB.some(p => p.t === '将进酒' && p.a === '李白' && p.c.includes('黄河之水天上来')));
+    check('收录声声慢', POEM_DB.some(p => p.t === '声声慢' && p.a === '李清照' && p.c.includes('寻寻觅觅')));
+    check('简体校验', !POEM_DB.some(p => /[辭鄉舉頭時見歸來]/.test(p.t + p.c)));
+}
+
+// ---- life.html ----
+{
+    const { ctx, els } = loadPage('life/life.html', null, poemsJs);
+    check('正午半天', Math.abs(ctx.dayProgress(new Date(2026, 5, 15, 12, 0, 0)) - 0.5) < 1e-9);
+    check('周进度周三中午', Math.abs(ctx.weekProgress(new Date(2026, 8, 30, 12, 0, 0)) - 2.5 / 7) < 1e-9);
+    check('月进度闰年月中', Math.abs(ctx.monthProgress(new Date(2024, 1, 15, 12)) - 14.5 / 29) < 1e-9);
+    check('年进度闰年过半', Math.abs(ctx.yearProgress(new Date(2024, 6, 2)) - 0.5) < 1e-9);
+    const now = new Date(2026, 8, 30);
+    const st = ctx.lifeStats(new Date(2000, 0, 1), 80, now);
+    check('生命统计总周数', st.totalWeeks === 4160);
+    const days = Math.floor((now - new Date(2000, 0, 1)) / 86400000);
+    check('生命统计天数周数', st.days === days && st.weeks === Math.floor(days / 7));
+    check('人生百分比范围', st.pct > 33 && st.pct < 34);
+    const wh = ctx.weeksHtml(10, 4160);
+    check('周格渲染', wh.includes('data-w="4159"') && wh.includes('wk now') && wh.includes('wk done'));
+    check('千分位格式化', ctx.fmtInt(12345678) === '12,345,678');
+    els['birthInput'] = { value: '1990-05-20' };
+    els['expectInput'] = { value: '90' };
+    check('应用设置', ctx.applySettings() === true);
+    check('周格与事实渲染', els['weeksGrid'].innerHTML.includes('data-w=') && els['facts'].innerHTML.includes('已度过的天数'));
+    check('主进度渲染', els['lifePct'].textContent.endsWith('%') && els['lifeSub'].innerHTML.includes('个周末'));
+    const p2 = loadPage('life/life.html', null, poemsJs);
+    check('设置持久化', p2.els['birthInput'].value === '1990-05-20' && p2.els['expectInput'].value === '90');
+    els['birthInput'] = { value: 'not-a-date' };
+    check('坏日期拒绝', ctx.applySettings() === false);
+    // 每日一诗
+    const d1 = new Date(2026, 8, 30), d2 = new Date(2026, 9, 1);
+    check('每日一诗确定性', ctx.dailyPoemIndex(d1) === ctx.dailyPoemIndex(new Date(2026, 8, 30)));
+    check('每日一诗跨天变化', ctx.dailyPoemIndex(d1) !== ctx.dailyPoemIndex(d2));
+    check('每日一诗索引范围', ctx.dailyPoemIndex(d1) >= 0 && ctx.dailyPoemIndex(d1) < POEM_DB.length);
+    ctx.renderPoem(0);
+    check('诗词渲染', els['poemContent'].textContent === POEM_DB[0].c && els['poemTitle'].textContent.includes(POEM_DB[0].t));
+    els['poemFilter'] = { value: 'song' };
+    ctx.poemIdx = -1;
+    ctx.nextPoem();
+    check('换一首宋词', POEM_DB[ctx.poemIdx].d === '宋' && els['poemMeta'].textContent.includes('宋'));
+    els['poemFilter'] = { value: 'all' };
+    // 黄历：农历与干支锚点
+    const l1 = ctx.solarToLunar(2024, 1, 1);
+    check('2024元旦冬月二十', l1.year === 2023 && l1.month === 11 && l1.day === 20 && !l1.isLeap);
+    const l2 = ctx.solarToLunar(2025, 7, 25);
+    check('2025闰六月初一', l2.month === 6 && l2.day === 1 && l2.isLeap);
+    const l3 = ctx.solarToLunar(2026, 2, 17);
+    check('2026春节正月初一', l3.year === 2026 && l3.month === 1 && l3.day === 1 && !l3.isLeap);
+    check('1949国庆甲子日', ctx.gz(ctx.dayGanzhiIndex(1949, 10, 1)) === '甲子');
+    check('农历日名', ctx.lunarDayName(1) === '初一' && ctx.lunarDayName(20) === '二十' && ctx.lunarDayName(23) === '廿三');
+    check('闰月名', ctx.lunarMonthName(6, true) === '闰六月');
+    check('星座分界', ctx.constellation(1, 19) === '摩羯' && ctx.constellation(1, 20) === '水瓶' && ctx.constellation(12, 22) === '摩羯');
+    const yi = ctx.pickCycle(ctx.YI_POOL, 7, 4, 7);
+    check('宜忌不重复', new Set(yi).size === 4 && yi.every(t => ctx.YI_POOL.includes(t)));
+    ctx.renderAlmanac(new Date(2026, 8, 30));
+    check('黄历渲染', els['almanacGrid'].innerHTML.includes('alm-cell') && els['yiList'].innerHTML.includes('chip-yi') && els['jiList'].innerHTML.includes('chip-ji'));
+    check('黄历干支渲染', els['almanacGrid'].innerHTML.includes(ctx.gz(ctx.dayGanzhiIndex(2026, 9, 30))));
+}
+// ---- poem.html ----
+{
+    const { ctx, els } = loadPage('poem/poem.html', null, poemsJs);
+    check('启动渲染列表', els['poemList'].innerHTML.includes('poem-item'));
+    check('启动展示今日一诗', els['dailyTag'].style.display !== 'none' && els['readerContent'].textContent === POEM_DB[ctx.currentIdx].c);
+    check('结果计数', els['resultCount'].textContent === '共 ' + POEM_DB.length + ' 首');
+    els['searchInput'] = { value: '苏轼' };
+    ctx.applyFilter();
+    check('搜索苏轼', ctx.filtered.length > 0 && ctx.filtered.every(p => (p.t + p.a + p.c).includes('苏轼')));
+    check('搜索高亮', els['poemList'].innerHTML.includes('<mark>苏轼</mark>'));
+    els['searchInput'] = { value: '' };
+    els['dynastyFilter'] = { value: '宋' };
+    ctx.applyFilter();
+    check('朝代筛选', ctx.filtered.length === POEM_DB.filter(p => p.d === '宋').length);
+    els['dynastyFilter'] = { value: 'all' };
+    els['tagFilter'] = { value: '月' };
+    ctx.applyFilter();
+    check('主题筛选', ctx.filtered.length > 0 && ctx.filtered.every(p => (p.g || []).includes('月')));
+    els['tagFilter'] = { value: 'all' };
+    ctx.applyFilter();
+    const before = ctx.currentIdx;
+    ctx.randomPoem();
+    check('随机一首', ctx.currentIdx !== before && els['readerTitle'].textContent === POEM_DB[ctx.currentIdx].t);
+    ctx.showPoem(0, false);
+    check('指定展示', els['readerTitle'].textContent === POEM_DB[0].t && els['readerAuthor'].textContent.includes(POEM_DB[0].a));
+}
+
 // ---- hash.html（异步块，最后收尾） ----
 (async () => {
     const nodeCrypto = require('crypto');
@@ -962,3 +1122,6 @@ function finish() {
     check('computeAndRender 渲染', els['hashResult'].innerHTML.includes('900150983cd24fb0d6963f7d28e17f72'));
     finish();
 })().catch(e => { console.error(e); process.exit(1); });
+
+
+

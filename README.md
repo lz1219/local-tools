@@ -45,6 +45,7 @@
 | 工具 | 路径 | 说明 |
 |------|------|------|
 | 随机生成器 | [gen/gen.html](gen/gen.html) | UUID v4、随机密码（熵强度提示）、随机数字/端口 |
+| 测试数据生成器 | [mock/mock.html](mock/mock.html) | 姓名/手机号/身份证/银行卡/邮箱/企业名称/统一社会信用代码，GB 11643、Luhn、GB 32100 校验位全对，整表导出 CSV/JSON/SQL |
 
 **硬件体检**
 
@@ -56,6 +57,8 @@
 
 | 工具 | 路径 | 说明 |
 |------|------|------|
+| 人生进度条 | [life/life.html](life/life.html) | 今天/本周/本月/今年/人生实时进度，生命周格可视化，每日一诗 + 今日黄历（农历干支宜忌），深色沉浸设计 |
+| 唐诗宋词库 | [poem/poem.html](poem/poem.html) | 唐诗三百首 + 宋词三百首全量 630 首，全文搜索/朝代/主题筛选，随机一首与每日一诗，本地诗库零联网 |
 | 电子木鱼 | [fish/fish.html](fish/fish.html) | 连击、自动模式、功德持久化的解压小玩具 |
 | 星空图 | [star/star.html](star/star.html) | 3232 颗恒星 + 88 星座连线，选城市实时渲染当晚星空，行星/月相推算 |
 | 幸运转盘 | [wheel/wheel.html](wheel/wheel.html) | 自定义选项抽签转盘，音效与中奖移除 |
@@ -70,3 +73,4 @@
 
 - 公共样式与工具函数在 `assets/common.css`、`assets/common.js`，新工具页引用即可保持统一风格
 - 回归测试：`node test-pages.js`（Node vm + DOM stub，无需浏览器）
+

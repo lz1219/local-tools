@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>测试数据生成器</title>
+    <link rel="stylesheet" href="../assets/common.css">
+    <style>
+        .gen-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 13px; color: #666; }
+        .gen-row input[type="number"] {
+            padding: 7px 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; background: #fff; color: #333; width: 90px;
+            font-family: Consolas, monospace;
+        }
+        .result-box {
+            background: #fafbfc; border: 1px solid #dde1e6; border-radius: 8px;
+            padding: 12px 14px; font-family: Consolas, monospace; font-size: 13px;
+            line-height: 1.9; word-break: break-all; white-space: pre-wrap;
+            min-height: 40px; max-height: 320px; overflow: auto;
+        }
+        .hdr-ctl { display: flex; gap: 8px; align-items: center; }
+        .batch-note { font-size: 12px; color: #999; margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>测试数据生成器</h1>
+        <p class="subtitle">姓名 · 手机号 · 身份证 · 银行卡 · 邮箱 · 企业信息 · 整表导出，全部本地随机，格式合法（含校验位）</p>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>中文姓名</h3>
+                <div class="hdr-ctl">
+                    <select id="nameCount" class="indent-select"><option>1</option><option selected>5</option><option>10</option><option>20</option><option>50</option></select>
+                    <button class="btn-primary btn-sm" onclick="genOne('name')">生成</button>
+                    <button class="btn-success btn-sm" onclick="copyBox('nameOut')">复制</button>
+                </div>
+            </div>
+            <div class="result-box" id="nameOut">点击生成中文姓名（单双名混合）</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>手机号</h3>
+                <div class="hdr-ctl">
+                    <select id="phoneCount" class="indent-select"><option>1</option><option selected>5</option><option>10</option><option>20</option><option>50</option></select>
+                    <button class="btn-primary btn-sm" onclick="genOne('phone')">生成</button>
+                    <button class="btn-success btn-sm" onclick="copyBox('phoneOut')">复制</button>
+                </div>
+            </div>
+            <div class="result-box" id="phoneOut">点击生成手机号（真实号段）</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>身份证号</h3>
+                <div class="hdr-ctl">
+                    <select id="idCount" class="indent-select"><option>1</option><option selected>5</option><option>10</option><option>20</option><option>50</option></select>
+                    <button class="btn-primary btn-sm" onclick="genOne('id')">生成</button>
+                    <button class="btn-success btn-sm" onclick="copyBox('idOut')">复制</button>
+                </div>
+            </div>
+            <div class="result-box" id="idOut">点击生成 18 位身份证号（GB 11643 校验位正确，仅供测试）</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>银行卡号</h3>
+                <div class="hdr-ctl">
+                    <select id="bankCount" class="indent-select"><option>1</option><option selected>5</option><option>10</option><option>20</option><option>50</option></select>
+                    <button class="btn-primary btn-sm" onclick="genOne('bank')">生成</button>
+                    <button class="btn-success btn-sm" onclick="copyBox('bankOut')">复制</button>
+                </div>
+            </div>
+            <div class="result-box" id="bankOut">点击生成借记卡号（真实 BIN + Luhn 校验，仅供测试）</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>邮箱</h3>
+                <div class="hdr-ctl">
+                    <select id="mailCount" class="indent-select"><option>1</option><option selected>5</option><option>10</option><option>20</option><option>50</option></select>
+                    <button class="btn-primary btn-sm" onclick="genOne('mail')">生成</button>
+                    <button class="btn-success btn-sm" onclick="copyBox('mailOut')">复制</button>
+                </div>
+            </div>
+            <div class="result-box" id="mailOut">点击生成邮箱地址</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>企业名称</h3>
+                <div class="hdr-ctl">
+                    <select id="compCount" class="indent-select"><option>1</option><option selected>5</option><option>10</option><option>20</option><option>50</option></select>
+                    <button class="btn-primary btn-sm" onclick="genOne('comp')">生成</button>
+                    <button class="btn-success btn-sm" onclick="copyBox('compOut')">复制</button>
+                </div>
+            </div>
+            <div class="result-box" id="compOut">点击生成企业名称（地区 + 字号 + 行业 + 组织形式）</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>统一社会信用代码</h3>
+                <div class="hdr-ctl">
+                    <select id="creditCount" class="indent-select"><option>1</option><option selected>5</option><option>10</option><option>20</option><option>50</option></select>
+                    <button class="btn-primary btn-sm" onclick="genOne('credit')">生成</button>
+                    <button class="btn-success btn-sm" onclick="copyBox('creditOut')">复制</button>
+                </div>
+            </div>
+            <div class="result-box" id="creditOut">点击生成 18 位统一社会信用代码（GB 32100 校验位正确，仅供测试）</div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <h3>整行数据</h3>
+                <div class="hdr-ctl">
+                    <button class="btn-primary btn-sm" onclick="genBatch()">生成</button>
+                    <button class="btn-success btn-sm" onclick="copyBox('batchOut')">复制</button>
+                </div>
+            </div>
+            <div class="gen-row" style="margin-bottom:10px;">
+                <span>类型:
+                    <select id="batchType" class="indent-select">
+                        <option value="person" selected>人员</option>
+                        <option value="company">企业</option>
+                    </select>
+                </span>
+                <span>条数: <input type="number" id="batchCount" value="10" min="1" max="500"></span>
+                <span>格式:
+                    <select id="batchFormat" class="indent-select">
+                        <option value="csv" selected>CSV</option>
+                        <option value="json">JSON</option>
+                        <option value="sql">SQL INSERT</option>
+                    </select>
+                </span>
+            </div>
+            <div class="result-box" id="batchOut">人员行：姓名 / 手机号 / 身份证号 / 银行卡号 / 邮箱；企业行：企业名称 / 信用代码 / 法人 / 注册资本 / 成立日期 / 电话</div>
+            <p class="batch-note">所有数据均为本地随机生成的虚构数据，证件与卡号仅保证格式与校验位合法，不对应任何真实主体。</p>
+        </div>
+    </div>
+    <div id="toast"></div>
+    <script src="../assets/common.js"></script>
+    <script>
+        // ---------- 随机基础 ----------
+        function randInt(min, max) { // 含两端
+            var range = max - min + 1;
+            if (range <= 0) return min;
+            var buf = new Uint32Array(1);
+            var limit = Math.floor(4294967296 / range) * range;
+            var x;
+            do { crypto.getRandomValues(buf); x = buf[0]; } while (x >= limit);
+            return min + (x % range);
+        }
+        function pick(arr) { return arr[randInt(0, arr.length - 1)]; }
+        function randDigits(n) {
+            var s = '';
+            for (var i = 0; i < n; i++) s += String(randInt(0, 9));
+            return s;
+        }
+        function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+        // ---------- 中文姓名 ----------
+        var SURNAMES = ('王李张刘陈杨黄赵周吴徐孙马朱胡郭何罗高林郑梁谢宋唐许韩冯邓曹彭' +
+            '曾肖田董潘袁蔡蒋余于杜叶程苏魏吕丁任沈姚卢姜崔钟谭陆汪范金石廖贾夏韦付方白邹孟熊秦邱江尹薛闫段雷侯龙').split('');
+        var GIVEN_CHARS = ('伟芳娜敏静秀丽强磊军洋勇艳杰娟涛明超霞平刚桂英华玉兰梅鑫宇欣怡梓涵子轩浩然一诺' +
+            '雨桐欣妍可欣思远若曦沐宸奕辰语桐艺涵俊杰嘉懿煜城鹤轩博文昊天思聪雨泽天佑沐阳若汐').split('');
+        function genName() {
+            var name = pick(SURNAMES);
+            var len = randInt(1, 2);
+            for (var i = 0; i < len; i++) name += pick(GIVEN_CHARS);
+            return name;
+        }
+
+        // ---------- 手机号 ----------
+        var PHONE_PREFIX = ['133', '135', '136', '137', '138', '139', '150', '151', '152', '155', '156', '157', '158', '159',
+            '166', '176', '177', '178', '180', '181', '182', '185', '186', '187', '188', '189', '191', '193', '198', '199'];
+        function genPhone() { return pick(PHONE_PREFIX) + randDigits(8); }
+
+        // ---------- 行政区划（身份证/信用代码共用） ----------
+        var REGIONS = ['110101', '110105', '120101', '310104', '310110', '320102', '320508', '330106', '330203', '350102',
+            '350203', '370102', '370203', '410105', '420111', '430102', '440104', '440305', '450103', '500103',
+            '510107', '520102', '530102', '610113', '620102', '230103', '220102', '210102', '130102', '140105'];
+
+        // ---------- 身份证（GB 11643-1999） ----------
+        var ID_WEIGHTS = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+        var ID_CHECK = '10X98765432';
+        function idChecksum(body17) {
+            var sum = 0;
+            for (var i = 0; i < 17; i++) sum += (body17.charCodeAt(i) - 48) * ID_WEIGHTS[i];
+            return ID_CHECK[sum % 11];
+        }
+        function idValid(id) {
+            return /^\d{17}[\dX]$/.test(id) && idChecksum(id.slice(0, 17)) === id[17];
+        }
+        function genIdCard() {
+            var year = randInt(1960, 2004), month = randInt(1, 12);
+            var maxDay = new Date(year, month, 0).getDate();
+            var body = pick(REGIONS) + year + pad2(month) + pad2(randInt(1, maxDay)) + randDigits(3);
+            return body + idChecksum(body);
+        }
+
+        // ---------- 银行卡（Luhn） ----------
+        var BANK_BINS = [
+            { bin: '621700', name: '建设银行龙卡通' }, { bin: '622848', name: '农业银行金穗卡' },
+            { bin: '622202', name: '工商银行牡丹卡' }, { bin: '622588', name: '招商银行一卡通' },
+            { bin: '623668', name: '中国银行长城卡' }, { bin: '622262', name: '交通银行太平洋卡' },
+            { bin: '621799', name: '邮储银行绿卡通' }, { bin: '622155', name: '光大银行阳光卡' }
+        ];
+        function luhnCheckDigit(body) {
+            var sum = 0, dbl = true; // body 右侧紧跟校验位，body 最右位需翻倍
+            for (var i = body.length - 1; i >= 0; i--) {
+                var d = body.charCodeAt(i) - 48;
+                if (dbl) { d *= 2; if (d > 9) d -= 9; }
+                sum += d;
+                dbl = !dbl;
+            }
+            return (10 - (sum % 10)) % 10;
+        }
+        function luhnValid(num) {
+            return /^\d{13,19}$/.test(num) && luhnCheckDigit(num.slice(0, -1)) === (num.charCodeAt(num.length - 1) - 48);
+        }
+        function genBankCard() {
+            var bin = pick(BANK_BINS).bin;
+            var body = bin + randDigits(19 - bin.length - 1); // 19 位借记卡
+            return body + luhnCheckDigit(body);
+        }
+
+        // ---------- 邮箱 ----------
+        var MAIL_DOMAINS = ['qq.com', '163.com', '126.com', 'gmail.com', 'outlook.com', 'sina.com', 'foxmail.com'];
+        var MAIL_LETTERS = 'abcdefghijklmnopqrstuvwxyz';
+        function genEmail() {
+            var len = randInt(5, 10), local = '';
+            for (var i = 0; i < len; i++) local += MAIL_LETTERS[randInt(0, 25)];
+            if (randInt(0, 1)) local += String(randInt(0, 999));
+            return local + '@' + pick(MAIL_DOMAINS);
+        }
+
+        // ---------- 企业名称 ----------
+        var COMP_CITY = ['北京', '上海', '广州', '深圳', '杭州', '成都', '武汉', '西安', '南京', '苏州',
+            '重庆', '天津', '长沙', '郑州', '青岛', '合肥', '佛山', '宁波', '厦门', '昆明'];
+        var COMP_BRAND = ['云帆', '启明', '恒信', '瑞泽', '博雅', '鼎盛', '蓝海', '星辉', '中正', '华宇',
+            '宏图', '天工', '立新', '远景', '同心', '金石', '飞扬', '磐石', '朗润', '嘉禾',
+            '凌云', '山河', '九州', '长风', '知行', '明远', '晟世', '开源', '望舒', '青崖'];
+        var COMP_INDUSTRY = ['科技', '网络科技', '信息技术', '贸易', '实业', '文化传媒', '电子商务', '智能科技',
+            '生物科技', '新能源', '环保科技', '建筑工程', '物流', '教育科技', '医疗科技', '金融服务'];
+        var COMP_SUFFIX = ['有限公司', '有限公司', '有限公司', '股份有限公司']; // 3:1 权重
+        function genCompanyName() {
+            return pick(COMP_CITY) + pick(COMP_BRAND) + pick(COMP_INDUSTRY) + pick(COMP_SUFFIX);
+        }
+
+        // ---------- 统一社会信用代码（GB 32100-2015） ----------
+        // 字符集不含 I O S V Z，共 31 个
+        var CREDIT_CHARS = '0123456789ABCDEFGHJKLMNPQRTUWXY';
+        var CREDIT_WEIGHTS = [1, 3, 9, 27, 19, 26, 16, 17, 20, 29, 25, 13, 8, 24, 10, 30, 28];
+        function creditChecksum(body17) {
+            var sum = 0;
+            for (var i = 0; i < 17; i++) {
+                var v = CREDIT_CHARS.indexOf(body17[i]);
+                if (v < 0) return '';
+                sum += v * CREDIT_WEIGHTS[i];
+            }
+            return CREDIT_CHARS[(31 - (sum % 31)) % 31];
+        }
+        function creditValid(code) {
+            return /^[0-9A-HJ-NPQRTUWXY]{18}$/.test(code) && creditChecksum(code.slice(0, 17)) === code[17];
+        }
+        function genCreditCode() {
+            // 第 1-2 位：登记管理部门 + 机构类别（91 企业 / 92 个体户 / 93 农民专业合作社）
+            var body = pick(['91', '91', '91', '92', '93']) + pick(REGIONS);
+            for (var i = 0; i < 9; i++) body += CREDIT_CHARS[randInt(0, 30)];
+            return body + creditChecksum(body);
+        }
+
+        // ---------- 整行数据 ----------
+        var FOUND_START = new Date(2000, 0, 1).getTime(), FOUND_END = new Date(2024, 11, 31).getTime();
+        var CAPITALS = [10, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+        function genFoundDate() {
+            var t = new Date(FOUND_START + randInt(0, Math.floor((FOUND_END - FOUND_START) / 86400000)) * 86400000);
+            return t.getFullYear() + '-' + pad2(t.getMonth() + 1) + '-' + pad2(t.getDate());
+        }
+        function genPerson() {
+            return { name: genName(), phone: genPhone(), id: genIdCard(), bank: genBankCard(), email: genEmail() };
+        }
+        function genCompany() {
+            return {
+                company: genCompanyName(), credit: genCreditCode(), legal: genName(),
+                capital: pick(CAPITALS), founded: genFoundDate(), phone: genPhone()
+            };
+        }
+        var BATCH_TYPES = {
+            person: {
+                gen: genPerson,
+                cols: [
+                    { k: 'name', zh: '姓名', sql: 'name' },
+                    { k: 'phone', zh: '手机号', sql: 'phone' },
+                    { k: 'id', zh: '身份证号', sql: 'id_card' },
+                    { k: 'bank', zh: '银行卡号', sql: 'bank_card' },
+                    { k: 'email', zh: '邮箱', sql: 'email' }
+                ]
+            },
+            company: {
+                gen: genCompany,
+                cols: [
+                    { k: 'company', zh: '企业名称', sql: 'company' },
+                    { k: 'credit', zh: '统一社会信用代码', sql: 'credit_code' },
+                    { k: 'legal', zh: '法人代表', sql: 'legal_person' },
+                    { k: 'capital', zh: '注册资本(万元)', sql: 'capital_wan' },
+                    { k: 'founded', zh: '成立日期', sql: 'founded' },
+                    { k: 'phone', zh: '联系电话', sql: 'phone' }
+                ]
+            }
+        };
+        function genRows(type, n) {
+            var rows = [], g = BATCH_TYPES[type].gen;
+            for (var i = 0; i < n; i++) rows.push(g());
+            return rows;
+        }
+        function toCsv(cols, rows) {
+            var lines = [cols.map(function (c) { return c.sql; }).join(',')];
+            for (var i = 0; i < rows.length; i++) {
+                lines.push(cols.map(function (c) { return rows[i][c.k]; }).join(','));
+            }
+            return lines.join('\n');
+        }
+        function toJson(cols, rows) {
+            var arr = rows.map(function (r) {
+                var o = {};
+                for (var i = 0; i < cols.length; i++) o[cols[i].zh] = r[cols[i].k];
+                return o;
+            });
+            return JSON.stringify(arr, null, 2);
+        }
+        function toSql(cols, rows) {
+            var head = 'INSERT INTO mock_data (' + cols.map(function (c) { return c.sql; }).join(', ') + ') VALUES\n';
+            var lines = rows.map(function (r) {
+                return '(' + cols.map(function (c) { return "'" + r[c.k] + "'"; }).join(',') + ')';
+            });
+            return head + lines.join(',\n') + ';';
+        }
+
+        // ---------- UI ----------
+        var generated = {};
+        var TYPE_MAP = {
+            name: { sel: 'nameCount', out: 'nameOut', gen: genName },
+            phone: { sel: 'phoneCount', out: 'phoneOut', gen: genPhone },
+            id: { sel: 'idCount', out: 'idOut', gen: genIdCard },
+            bank: { sel: 'bankCount', out: 'bankOut', gen: genBankCard },
+            mail: { sel: 'mailCount', out: 'mailOut', gen: genEmail },
+            comp: { sel: 'compCount', out: 'compOut', gen: genCompanyName },
+            credit: { sel: 'creditCount', out: 'creditOut', gen: genCreditCode }
+        };
+        function genOne(type) {
+            var cfg = TYPE_MAP[type];
+            var n = parseInt($(cfg.sel).value, 10) || 5;
+            var lines = [];
+            for (var i = 0; i < n; i++) lines.push(cfg.gen());
+            $(cfg.out).textContent = lines.join('\n');
+            generated[cfg.out] = true;
+        }
+        function genBatch() {
+            var n = parseInt($('batchCount').value, 10) || 10;
+            if (n < 1) n = 1;
+            if (n > 500) n = 500;
+            var type = $('batchType').value || 'person';
+            if (!BATCH_TYPES[type]) type = 'person';
+            var rows = genRows(type, n), cols = BATCH_TYPES[type].cols;
+            var fmt = $('batchFormat').value;
+            $('batchOut').textContent = fmt === 'json' ? toJson(cols, rows) : (fmt === 'sql' ? toSql(cols, rows) : toCsv(cols, rows));
+            generated['batchOut'] = true;
+            showToast('已生成 ' + n + ' 条');
+        }
+        function copyBox(id) {
+            var text = $(id).textContent;
+            if (!generated[id] || !text) { showToast('没有可复制的内容'); return; }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(function () { showToast('已复制'); }, function () { showToast('复制失败'); });
+            } else {
+                showToast('当前环境不支持剪贴板');
+            }
+        }
+    </script>
+</body>
+</html>
