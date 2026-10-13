@@ -82,15 +82,13 @@
 <body>
     <div class="container">
         <h1>唐诗宋词库</h1>
-        <p class="subtitle">唐诗三百首 · 宋词三百首 · 全量收录</p>
+        <p class="subtitle">唐诗三百首 · 宋词三百首 · 课本经典补遗</p>
 
         <div class="panel">
             <div class="toolbar">
                 <input type="text" id="searchInput" placeholder="搜索标题 / 作者 / 诗句，如：明月、苏轼、大江东去">
                 <select id="dynastyFilter" class="indent-select">
                     <option value="all">全部朝代</option>
-                    <option value="唐">唐诗</option>
-                    <option value="宋">宋词</option>
                 </select>
                 <select id="tagFilter" class="indent-select">
                     <option value="all">全部主题</option>
@@ -138,6 +136,19 @@
         }
 
         // ---------- 筛选 ----------
+        function buildDynastyOptions() {
+            var counts = {}, order = [], sel = $('dynastyFilter');
+            POEM_DB.forEach(function (p) {
+                if (!counts[p.d]) { counts[p.d] = 0; order.push(p.d); }
+                counts[p.d]++;
+            });
+            order.sort(function (a, b) { return counts[b] - counts[a]; });
+            order.forEach(function (d) {
+                var opt = document.createElement('option');
+                opt.value = d; opt.textContent = d + '（' + counts[d] + '）';
+                sel.appendChild(opt);
+            });
+        }
         function buildTagOptions() {
             var tags = {}, sel = $('tagFilter');
             POEM_DB.forEach(function (p) { (p.g || []).forEach(function (t) { tags[t] = (tags[t] || 0) + 1; }); });
@@ -241,9 +252,10 @@
         $('tagFilter').addEventListener('change', applyFilter);
 
         // ---------- 启动 ----------
+        buildDynastyOptions();
         buildTagOptions();
         applyFilter();
-        document.querySelector('.subtitle').textContent = '唐诗三百首 · 宋词三百首 · 全量收录 ' + POEM_DB.length + ' 首经典';
+        document.querySelector('.subtitle').textContent = '唐诗三百首 · 宋词三百首 · 课本经典补遗 · 共收录 ' + POEM_DB.length + ' 首';
         showDaily();
     </script>
 </body>

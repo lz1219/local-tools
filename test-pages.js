@@ -1010,8 +1010,8 @@ function finish() {
 }
 // ---- 诗库数据完整性 ----
 {
-    check('诗库总数 >= 600', POEM_DB.length >= 600);
-    check('诗库字段完整', POEM_DB.every(p => p.t && p.a && (p.d === '唐' || p.d === '宋') && p.c));
+    check('诗库总数 >= 670', POEM_DB.length >= 670);
+    check('诗库字段完整', POEM_DB.every(p => p.t && p.a && p.d && p.c));
     const key = p => p.a + '|' + p.c.slice(0, 20);
     check('诗库无重复', new Set(POEM_DB.map(key)).size === POEM_DB.length);
     check('收录静夜思', POEM_DB.some(p => p.t === '静夜思' && p.a === '李白' && p.c.includes('疑是地上霜')));
@@ -1019,6 +1019,13 @@ function finish() {
     check('收录将进酒', POEM_DB.some(p => p.t === '将进酒' && p.a === '李白' && p.c.includes('黄河之水天上来')));
     check('收录声声慢', POEM_DB.some(p => p.t === '声声慢' && p.a === '李清照' && p.c.includes('寻寻觅觅')));
     check('简体校验', !POEM_DB.some(p => /[辭鄉舉頭時見歸來]/.test(p.t + p.c)));
+    check('补遗收录悯农', POEM_DB.filter(p => p.a === '李绅' && p.t.startsWith('悯农')).length === 2 &&
+        POEM_DB.some(p => p.c.includes('锄禾日当午')) && POEM_DB.some(p => p.c.includes('粒粒皆辛苦')));
+    check('补遗收录咏鹅', POEM_DB.some(p => p.t === '咏鹅' && p.a === '骆宾王' && p.c.includes('白毛浮绿水')));
+    check('补遗收录敕勒歌', POEM_DB.some(p => p.t === '敕勒歌' && p.d === '北朝'));
+    check('补遗收录课本名篇', POEM_DB.some(p => p.t === '望庐山瀑布') && POEM_DB.some(p => p.t === '题西林壁') &&
+        POEM_DB.some(p => p.t === '示儿' && p.a === '陆游') && POEM_DB.some(p => p.t === '石灰吟' && p.a === '于谦'));
+    check('补遗不与原库重复', !POEM_DB.some(p => p.t === '赋得古原草送别（节选）'));
 }
 
 // ---- life.html ----
